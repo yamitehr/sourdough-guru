@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sourdough Guru</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg: #faf8f5;
+            --surface: #ffffff;
+            --primary: #8b6914;
+            --primary-light: #f5e6c8;
+            --text: #2c2416;
+            --text-light: #6b5d4d;
+            --border: #e8dfd3;
+            --user-bubble: #8b6914;
+            --bot-bubble: #ffffff;
+            --sidebar-bg: #f3efe8;
+            --radius: 12px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+        }
+
+        /* ---- Sidebar ---- */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-header h2 {
+            font-size: 1rem;
+            color: var(--primary);
+        }
+
+        .new-chat-btn {
+            padding: 6px 12px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .new-chat-btn:hover { background: #7a5c11; }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .session-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+            position: relative;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .session-item:hover { background: var(--primary-light); }
+
+        .session-item.active {
+            background: var(--primary-light);
+            border-color: var(--primary);
+        }
+
+        .session-item.deleting {
+            animation: slideOutLeft 0.4s ease forwards;
+        }
+
+        @keyframes slideOutLeft {
+            0% { transform: translateX(0); opacity: 1; max-height: 80px; margin-bottom: 4px; }
+            50% { transform: translateX(-100%); opacity: 0; max-height: 80px; margin-bottom: 4px; }
+            100% { transform: translateX(-100%); opacity: 0; max-height: 0; margin-bottom: 0; padding: 0 12px; }
+        }
+
+        .session-delete-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            color: var(--text-light);
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s, background 0.15s, color 0.15s;
+        }
+
+        .session-item:hover .session-delete-btn { opacity: 1; }
+        .session-delete-btn:hover { background: #e74c3c; color: white; }
+
+        .session-preview {
+            font-size: 0.82rem;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding-right: 24px;
+        }
+
+        .session-meta {
+            font-size: 0.72rem;
+            color: var(--text-light);
+            margin-top: 2px;
+        }
+
+        /* ---- Main area ---- */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            min-width: 0;
+        }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        header h1 { font-size: 1.3rem; color: var(--primary); }
+        header span { font-size: 0.85rem; color: var(--text-light); }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 720px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .message.user { align-self: flex-end; }
+        .message.bot { align-self: flex-start; }
+
+        .bubble {
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            line-height: 1.6;
+            font-size: 0.95rem;
+            word-wrap: break-word;
+        }
+
+        .message.user .bubble {
+            background: var(--user-bubble);
+            color: white;
+            border-bottom-right-radius: 4px;
+            white-space: pre-wrap;
+        }
+
+        .message.bot .bubble {
+            background: var(--bot-bubble);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Markdown in bot bubbles */
+        .message.bot .bubble h1,
+        .message.bot .bubble h2,
+        .message.bot .bubble h3 {
+            color: var(--primary);
+            margin: 16px 0 8px 0;
+            line-height: 1.3;
+        }
+        .message.bot .bubble h1 { font-size: 1.15rem; }
+        .message.bot .bubble h2 { font-size: 1.05rem; }
+        .message.bot .bubble h3 { font-size: 0.95rem; }
+        .message.bot .bubble h1:first-child,
+        .message.bot .bubble h2:first-child,
+        .message.bot .bubble h3:first-child { margin-top: 0; }
+        .message.bot .bubble p { margin: 8px 0; }
+        .message.bot .bubble ul, .message.bot .bubble ol { margin: 8px 0; padding-left: 24px; }
+        .message.bot .bubble li { margin: 4px 0; }
+        .message.bot .bubble strong { color: var(--text); }
+        .message.bot .bubble code { background: #f0ebe3; padding: 2px 5px; border-radius: 4px; font-size: 0.88rem; }
+        .message.bot .bubble pre { background: #f0ebe3; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+        .message.bot .bubble hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+        .message.bot .bubble table { border-collapse: collapse; margin: 8px 0; font-size: 0.9rem; }
+        .message.bot .bubble th, .message.bot .bubble td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+        .message.bot .bubble th { background: var(--primary-light); font-weight: 600; }
+
+        .steps-toggle {
+            font-size: 0.8rem;
+            color: var(--primary);
+            cursor: pointer;
+            padding: 4px 0;
+            user-select: none;
+        }
+        .steps-toggle:hover { text-decoration: underline; }
+
+        .steps-panel {
+            display: none;
+            background: #f9f6f1;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.82rem;
+            max-width: 720px;
+        }
+        .steps-panel.open { display: block; }
+        .step-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        .step-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .step-module { font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+        .step-content { color: var(--text-light); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+
+        .input-area {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-area textarea {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 0.95rem;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            min-height: 48px;
+            max-height: 120px;
+        }
+        .input-area textarea:focus { border-color: var(--primary); }
+
+        .input-area button {
+            padding: 12px 24px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 0.95rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .input-area button:hover { background: #7a5c11; }
+        .input-area button:disabled { background: #c4b496; cursor: not-allowed; }
+
+        .typing-indicator {
+            align-self: flex-start;
+            padding: 12px 16px;
+            background: var(--bot-bubble);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            border-bottom-left-radius: 4px;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .notification-banner {
+            display: none;
+            background: var(--primary-light);
+            border: 1px solid var(--primary);
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin: 8px 24px;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+        .notification-banner.active { display: block; }
+
+        .examples {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 0 24px 12px;
+        }
+
+        .example-chip {
+            padding: 8px 14px;
+            background: var(--primary-light);
+            border-radius: 20px;
+            font-size: 0.82rem;
+            color: var(--primary);
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .example-chip:hover { border-color: var(--primary); }
+
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .typing-dots { animation: pulse 1.4s infinite; }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>Sessions</h2>
+            <button class="new-chat-btn" onclick="newSession()">+ New Chat</button>
+        </div>
+        <div class="session-list" id="sessionList"></div>
+    </div>
+
+    <!-- Main chat area -->
+    <div class="main">
+        <header>
+            <h1>Sourdough Guru</h1>
+            <span>Your AI sourdough baking assistant</span>
+        </header>
+
+        <div class="notification-banner" id="notificationBanner"></div>
+
+        <div class="chat-container" id="chat">
+            <div class="message bot">
+                <div class="bubble">Hello! I'm the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?</div>
+            </div>
+        </div>
+
+        <div class="examples" id="examples">
+            <div class="example-chip" onclick="sendExample(this)">What temperature for my starter?</div>
+            <div class="example-chip" onclick="sendExample(this)">75% hydration country loaf recipe</div>
+            <div class="example-chip" onclick="sendExample(this)">Plan bake day: 10 loaves by 6am</div>
+        </div>
+
+        <div class="input-area">
+            <textarea id="userInput" rows="1" placeholder="Ask about sourdough..." onkeydown="handleKey(event)"></textarea>
+            <button id="sendBtn" onclick="sendMessage()">Run Agent</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let sessionId = localStorage.getItem('sg_session') || crypto.randomUUID();
+        localStorage.setItem('sg_session', sessionId);
+
+        let pollInterval = null;
+
+        const chat = document.getElementById('chat');
+        const input = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const banner = document.getElementById('notificationBanner');
+        const examples = document.getElementById('examples');
+        const sessionList = document.getElementById('sessionList');
+
+        function handleKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function renderMarkdown(text) {
+            try { return marked.parse(text); }
+            catch (e) { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>'); }
+        }
+
+        function addMessage(content, role, steps) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            if (role === 'bot') {
+                bubble.innerHTML = renderMarkdown(content);
+            } else {
+                bubble.textContent = content;
+            }
+            div.appendChild(bubble);
+
+            if (steps && steps.length > 0) {
+                const toggle = document.createElement('div');
+                toggle.className = 'steps-toggle';
+                toggle.textContent = `Show execution trace (${steps.length} steps)`;
+
+                const panel = document.createElement('div');
+                panel.className = 'steps-panel';
+
+                steps.forEach(step => {
+                    const item = document.createElement('div');
+                    item.className = 'step-item';
+                    const mod = document.createElement('div');
+                    mod.className = 'step-module';
+                    mod.textContent = step.module;
+                    item.appendChild(mod);
+                    if (step.prompt) {
+                        const p = document.createElement('div');
+                        p.className = 'step-content';
+                        p.textContent = 'Prompt: ' + step.prompt.substring(0, 300) + (step.prompt.length > 300 ? '...' : '');
+                        item.appendChild(p);
+                    }
+                    if (step.response) {
+                        const r = document.createElement('div');
+                        r.className = 'step-content';
+                        r.textContent = 'Response: ' + step.response.substring(0, 500) + (step.response.length > 500 ? '...' : '');
+                        item.appendChild(r);
+                    }
+                    panel.appendChild(item);
+                });
+
+                toggle.onclick = () => {
+                    panel.classList.toggle('open');
+                    toggle.textContent = panel.classList.contains('open')
+                        ? `Hide execution trace (${steps.length} steps)`
+                        : `Show execution trace (${steps.length} steps)`;
+                };
+                div.appendChild(toggle);
+                div.appendChild(panel);
+            }
+
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function showTyping(show) {
+            // Remove any existing indicator
+            const existing = document.getElementById('typingIndicator');
+            if (existing) existing.remove();
+
+            if (show) {
+                const indicator = document.createElement('div');
+                indicator.id = 'typingIndicator';
+                indicator.className = 'typing-indicator message bot';
+                indicator.innerHTML = '<span class="typing-dots">Thinking...</span>';
+                chat.appendChild(indicator);
+                chat.scrollTop = chat.scrollHeight;
+            }
+        }
+
+        async function sendMessage() {
+            const text = input.value.trim();
+            if (!text) return;
+
+            addMessage(text, 'user');
+            input.value = '';
+            sendBtn.disabled = true;
+            examples.style.display = 'none';
+            showTyping(true);
+
+            try {
+                const res = await fetch(`${API_BASE}/api/execute`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: text, session_id: sessionId }),
+                });
+
+                const data = await res.json();
+                showTyping(false);
+
+                if (data.status === 'ok') {
+                    addMessage(data.response, 'bot', data.steps);
+                    const hasBakePlan = data.steps && data.steps.some(s => s.module === 'BakePlanningAgent');
+                    if (hasBakePlan) startBakePolling(sessionId);
+                } else {
+                    addMessage('Error: ' + (data.error || 'Unknown error'), 'bot');
+                }
+            } catch (err) {
+                showTyping(false);
+                addMessage('Connection error: ' + err.message, 'bot');
+            }
+
+            sendBtn.disabled = false;
+            input.focus();
+            loadSessions(); // Refresh sidebar
+        }
+
+        function sendExample(el) {
+            input.value = el.textContent;
+            sendMessage();
+        }
+
+        // ---- Session management ----
+
+        function newSession() {
+            sessionId = crypto.randomUUID();
+            localStorage.setItem('sg_session', sessionId);
+            chat.innerHTML = '';
+            addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
+            examples.style.display = 'flex';
+            if (pollInterval) clearInterval(pollInterval);
+            banner.classList.remove('active');
+            input.value = '';
+            input.focus();
+            loadSessions(); // Refresh sidebar to clear active highlight
+        }
+
+        async function loadSessions() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions`);
+                const sessions = await res.json();
+                sessionList.innerHTML = '';
+
+                sessions.forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = 'session-item';
+                    item.dataset.sid = s.session_id;
+                    if (s.session_id === sessionId) item.classList.add('active');
+                    item.onclick = () => switchSession(s.session_id);
+
+                    const preview = document.createElement('div');
+                    preview.className = 'session-preview';
+                    preview.textContent = s.preview || 'New conversation';
+
+                    const meta = document.createElement('div');
+                    meta.className = 'session-meta';
+                    const date = s.updated_at ? new Date(s.updated_at).toLocaleString() : '';
+                    meta.textContent = `${s.message_count} messages${date ? ' · ' + date : ''}`;
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'session-delete-btn';
+                    deleteBtn.innerHTML = '&times;';
+                    deleteBtn.title = 'Delete session';
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deleteSession(s.session_id, item);
+                    };
+
+                    item.appendChild(preview);
+                    item.appendChild(meta);
+                    item.appendChild(deleteBtn);
+                    sessionList.appendChild(item);
+                });
+            } catch (e) {
+                // Sidebar load failure is non-critical
+            }
+        }
+
+        async function deleteSession(sid, itemEl) {
+            itemEl.classList.add('deleting');
+            try {
+                await fetch(`${API_BASE}/api/sessions/${sid}`, { method: 'DELETE' });
+            } catch (e) {}
+            // If we deleted the active session, start a new one
+            if (sid === sessionId) {
+                setTimeout(() => {
+                    newSession();
+                }, 400);
+            }
+            // Remove element after animation completes
+            setTimeout(() => {
+                itemEl.remove();
+            }, 400);
+        }
+
+        async function switchSession(newSessionId) {
+            sessionId = newSessionId;
+            localStorage.setItem('sg_session', sessionId);
+
+            // Load messages for this session
+            chat.innerHTML = '';
+            examples.style.display = 'none';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
+                const messages = await res.json();
+
+                if (messages.length === 0) {
+                    addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
+                    examples.style.display = 'flex';
+                } else {
+                    messages.forEach(m => {
+                        addMessage(m.content, m.role === 'user' ? 'user' : 'bot');
+                    });
+                }
+            } catch (e) {
+                addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
+                examples.style.display = 'flex';
+            }
+
+            // Update active highlight in sidebar
+            document.querySelectorAll('.session-item').forEach(el => {
+                el.classList.toggle('active', el.dataset.sid === sessionId);
+            });
+        }
+
+        // ---- Bake polling ----
+        function startBakePolling(sid) {
+            if (pollInterval) clearInterval(pollInterval);
+            banner.textContent = 'Bake plan active — tracking your progress...';
+            banner.classList.add('active');
+
+            pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/bake_session/${sid}/status`);
+                    const status = await res.json();
+                    if (!status.active) {
+                        banner.textContent = 'Bake complete!';
+                        clearInterval(pollInterval);
+                        setTimeout(() => banner.classList.remove('active'), 5000);
+                        return;
+                    }
+                    let msg = '';
+                    if (status.current_step) {
+                        msg = `Current: ${status.current_step}`;
+                        if (status.time_remaining_minutes) msg += ` (${Math.round(status.time_remaining_minutes)} min remaining)`;
+                    }
+                    if (status.next_step) msg += msg ? ` | Next: ${status.next_step}` : `Next: ${status.next_step}`;
+                    banner.textContent = msg || 'Bake plan active...';
+                    if (status.time_remaining_minutes && status.time_remaining_minutes <= 5 && Notification.permission === 'granted') {
+                        new Notification('Sourdough Guru', { body: `${status.current_step} ending in ${Math.round(status.time_remaining_minutes)} minutes. Next: ${status.next_step || 'Done!'}` });
+                    }
+                } catch (e) {}
+            }, 30000);
+
+            if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+        }
+
+        // Init
+        loadSessions();
+        input.focus();
+    </script>
+</body>
+</html>

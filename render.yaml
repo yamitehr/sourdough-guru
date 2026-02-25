@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: sourdough-guru
+    runtime: docker
+    plan: free
+    envVars:
+      - key: LLMOD_API_KEY
+        sync: false
+      - key: LLMOD_BASE_URL
+        value: https://api.llmod.ai/v1
+      - key: LLMOD_CHAT_MODEL
+        value: RPRTHPB-gpt-5-mini
+      - key: LLMOD_EMBEDDING_MODEL
+        value: RPRTHPB-text-embedding-3-small
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: sourdough-knowledge
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
