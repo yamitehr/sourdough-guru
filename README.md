@@ -210,19 +210,3 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
 }
 ```
 
----
-
-## Deployment
-
-### Render (Docker)
-
-1. Push to a GitHub repository
-2. Connect the repo on [Render](https://render.com)
-3. Set environment variables in the Render dashboard
-4. Deploy — the `render.yaml` and `Dockerfile` handle the rest
-
-```bash
-# Or deploy manually:
-docker build -t sourdough-guru .
-docker run -p 8000:8000 --env-file .env sourdough-guru
-```
