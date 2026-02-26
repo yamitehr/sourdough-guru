@@ -42,9 +42,12 @@ ARCHITECTURE_PNG = Path(__file__).resolve().parent.parent / "architecture.png"
 @app.get("/api/team_info")
 def team_info():
     return {
+        "group_batch_order_number": "1_10",
         "team_name": "Sourdough Guru",
         "students": [
-            {"name": "Student 1", "id": "000000000"},
+            {"name": "Yamit Ehrlich", "email": "yamitehrlich@campus.technion.ac.il"},
+            {"name": "Aviv Lugasi",   "email": "aviv.lugasi@campus.technion.ac.il"},
+            {"name": "Sophia Danilov","email": "sophia.d@campus.technion.ac.il"},
         ],
     }
 
@@ -54,27 +57,67 @@ def agent_info():
     return {
         "description": "Sourdough Guru is an AI-powered sourdough baking assistant that helps with factual Q&A, recipe recommendations, and bake-day planning.",
         "purpose": "Help bakers of all skill levels master sourdough through science-backed knowledge, customized recipes, and detailed bake schedules.",
-        "prompt_templates": [
-            "What temperature should I keep my starter at?",
-            "Give me a recipe for a 75% hydration country loaf",
-            "Plan my bake day — I need 20 sourdough loaves by 6am tomorrow",
-        ],
-        "examples": [
+        "prompt_template": {
+            "template": "Ask me anything about sourdough! Examples: 'What is the ideal fermentation temperature?', 'Give me a 75% hydration country loaf recipe', 'I need 8 loaves ready by 7am — plan my bake.'"
+        },
+        "prompt_examples": [
             {
                 "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
-                "intent": "factual_qa",
-                "summary": "Returns a grounded answer from sourdough books and research about optimal hydration levels for beginners.",
+                "full_response": "For beginners, a hydration of 65–72% is ideal. Lower hydration doughs are easier to handle and shape since the gluten network is tighter, giving you more control. As you get comfortable with fermentation and shaping, you can gradually increase hydration to develop a more open crumb. Start at 68% and adjust from there.",
+                "steps": [
+                    {
+                        "module": "supervisor",
+                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
+                        "response": "{\"intent\": \"factual_qa\", \"intent_params\": {}}"
+                    },
+                    {
+                        "module": "clarify",
+                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
+                        "response": "{\"needs_clarification\": false}"
+                    },
+                    {
+                        "module": "retrieve_context_qa",
+                        "prompt": "ideal hydration beginner sourdough loaf",
+                        "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
+                    },
+                    {
+                        "module": "generate_qa_answer",
+                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
+                        "response": "For beginners, a hydration of 65–72% is ideal..."
+                    }
+                ]
             },
             {
                 "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
-                "intent": "recipe",
-                "summary": "Creates a detailed focaccia recipe with ingredients in grams, baker's percentages, and step-by-step method.",
-            },
-            {
-                "prompt": "I need to have 10 loaves ready by 8am Saturday. Plan my bake.",
-                "intent": "bake_plan",
-                "summary": "Generates a backwards-calculated timeline with timestamps for each baking step.",
-            },
+                "full_response": "**Sourdough Focaccia (80% Hydration)**\n\nIngredients (for 1 pan, ~600g dough):\n- Bread flour: 333g (100%)\n- Water: 267g (80%)\n- Sourdough starter (100% hydration): 67g (20%)\n- Salt: 7g (2%)\n- Olive oil: 20g (6%)\n\nMethod:\n1. Mix flour + water, autolyse 30 min.\n2. Add starter + salt, fold every 30 min for 2 hrs.\n3. Bulk ferment 4–6 hrs at 24°C.\n4. Transfer to oiled pan, dimple, rest 1 hr.\n5. Bake at 230°C for 22–25 min until golden.",
+                "steps": [
+                    {
+                        "module": "supervisor",
+                        "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
+                        "response": "{\"intent\": \"recipe\", \"intent_params\": {\"target_product\": \"focaccia\", \"hydration\": 80}}"
+                    },
+                    {
+                        "module": "clarify",
+                        "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
+                        "response": "{\"needs_clarification\": false}"
+                    },
+                    {
+                        "module": "retrieve_context_recipe",
+                        "prompt": "sourdough focaccia recipe 80% hydration",
+                        "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
+                    },
+                    {
+                        "module": "compute_baking_math",
+                        "prompt": "{\"target_product\": \"focaccia\", \"hydration\": 80}",
+                        "response": "{\"flour_g\": 333, \"water_g\": 267, \"starter_g\": 67, \"salt_g\": 7}"
+                    },
+                    {
+                        "module": "generate_recipe",
+                        "prompt": "Generate a full focaccia recipe with the computed quantities.",
+                        "response": "**Sourdough Focaccia (80% Hydration)**..."
+                    }
+                ]
+            }
         ],
     }
 
@@ -110,7 +153,7 @@ async def execute(request: ExecuteRequest):
         return ExecuteResponse(
             status="error",
             error=str(e),
-            response="Sorry, something went wrong processing your request.",
+            response=None,
             steps=[],
         )
 

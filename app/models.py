@@ -17,7 +17,7 @@ class StepTrace(BaseModel):
 class ExecuteResponse(BaseModel):
     status: str = "ok"
     error: Optional[str] = None
-    response: str = ""
+    response: Optional[str] = ""
     steps: list[StepTrace] = []
 
 

@@ -19,7 +19,7 @@ def retrieve_context(state: SourdoughState) -> dict:
 
     logger.info(f"[Retriever] Querying Pinecone for: {query[:100]}")
 
-    docs = retrieve(query=query, top_k=5, filter=pinecone_filter)
+    docs = retrieve(query=query, top_k=4, filter=pinecone_filter)
 
     for i, doc in enumerate(docs):
         logger.info(f"[Retriever] Doc {i+1}: {doc.get('source', '?')} (page {doc.get('page', '?')}, score={doc.get('score', '?'):.3f})")
