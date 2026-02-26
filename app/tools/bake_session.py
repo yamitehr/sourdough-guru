@@ -139,7 +139,7 @@ def get_bake_status(session_id: str) -> dict:
         plan_data = json.loads(plan_data)
 
     timeline = plan_data.get("timeline", [])
-    now = datetime.utcnow()
+    now = datetime.now()
 
     current_step = None
     next_step = None

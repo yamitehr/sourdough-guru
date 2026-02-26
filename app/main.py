@@ -76,12 +76,12 @@ def agent_info():
                         "response": "{\"needs_clarification\": false}"
                     },
                     {
-                        "module": "retrieve_context_qa",
+                        "module": "retriever",
                         "prompt": "ideal hydration beginner sourdough loaf",
                         "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
                     },
                     {
-                        "module": "generate_qa_answer",
+                        "module": "factual_qa",
                         "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
                         "response": "For beginners, a hydration of 65–72% is ideal..."
                     }
@@ -102,17 +102,12 @@ def agent_info():
                         "response": "{\"needs_clarification\": false}"
                     },
                     {
-                        "module": "retrieve_context_recipe",
+                        "module": "retriever",
                         "prompt": "sourdough focaccia recipe 80% hydration",
                         "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
                     },
                     {
-                        "module": "compute_baking_math",
-                        "prompt": "{\"target_product\": \"focaccia\", \"hydration\": 80}",
-                        "response": "{\"flour_g\": 333, \"water_g\": 267, \"starter_g\": 67, \"salt_g\": 7}"
-                    },
-                    {
-                        "module": "generate_recipe",
+                        "module": "recipe",
                         "prompt": "Generate a full focaccia recipe with the computed quantities.",
                         "response": "**Sourdough Focaccia (80% Hydration)**..."
                     }
@@ -131,6 +126,12 @@ def model_architecture():
 
 @app.post("/api/execute")
 async def execute(request: ExecuteRequest):
+    prompt = request.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=422, detail="Prompt cannot be empty.")
+    if len(prompt) > 5000:
+        raise HTTPException(status_code=422, detail="Prompt exceeds 5000 character limit.")
+
     session_id = request.session_id or str(uuid.uuid4())
 
     initial_state = {

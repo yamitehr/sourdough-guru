@@ -46,7 +46,7 @@ def _format_context(docs: list[dict]) -> str:
     parts = []
     for i, doc in enumerate(docs, 1):
         source = doc.get("source", "Unknown")
-        parts.append(f"[{i}] {source}: {doc['text']}")
+        parts.append(f"[{i}] {source}: {doc.get('text', '')}")
     return "\n\n".join(parts)
 
 
@@ -127,7 +127,7 @@ Create a detailed sourdough recipe:"""
     logger.info(f"[Recipe] Response preview: {answer[:200]}")
 
     step = {
-        "module": "RecipeRecommendationAgent",
+        "module": "recipe",
         "prompt": user_prompt,
         "response": answer,
     }

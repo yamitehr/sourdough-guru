@@ -55,7 +55,7 @@ def generate_general_response(state: SourdoughState) -> dict:
         logger.warning(f"[General] Empty answer!")
 
     step = {
-        "module": "GeneralAgent",
+        "module": "general",
         "prompt": state["user_query"],
         "response": answer,
     }

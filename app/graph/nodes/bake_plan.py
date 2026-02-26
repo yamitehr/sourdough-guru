@@ -79,7 +79,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
 
     context_parts = []
     for doc in state.get("retrieved_docs", [])[:3]:
-        context_parts.append(f"[{doc.get('source', '?')}]: {doc['text']}")
+        context_parts.append(f"[{doc.get('source', '?')}]: {doc.get('text', '')}")
     context = "\n\n".join(context_parts)
 
     plan_data = state.get("bake_plan_data", {})
@@ -123,7 +123,7 @@ Create a detailed, friendly bake plan:"""
         logger.warning(f"[BakePlan] Empty answer!")
 
     step = {
-        "module": "BakePlanningAgent",
+        "module": "bake_plan",
         "prompt": user_prompt,
         "response": answer,
     }

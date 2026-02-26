@@ -3,6 +3,7 @@
 import json
 import logging
 import warnings
+from datetime import datetime, timedelta
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ from app.graph.nodes.llm_utils import get_llm
 
 logger = logging.getLogger("sourdough.supervisor")
 
-SYSTEM_PROMPT = """You are the routing supervisor for a sourdough baking assistant.
+SYSTEM_PROMPT_TEMPLATE = """You are the routing supervisor for a sourdough baking assistant.
 
 Classify the user's message into exactly one intent and extract relevant parameters.
 
@@ -25,7 +26,7 @@ Intents:
 
 Parameter rules:
 - Extract numeric values as plain numbers (e.g. 75 not "75%").
-- For ready_by and start_time: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). If the user says "6am" or "6am tomorrow", infer the next occurrence of that time relative to today and output a full ISO datetime. Example: "6am" → "2026-02-22T06:00:00"."""
+- For ready_by and start_time: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). If the user says "6am" or "6am tomorrow", infer the next occurrence of that time relative to today ({today}) and output a full ISO datetime. Today is {today}. Tomorrow is {tomorrow}. Example: "6am tomorrow" → "{tomorrow}T06:00:00"."""
 
 
 class IntentParams(BaseModel):
@@ -58,7 +59,11 @@ def supervisor(state: SourdoughState) -> dict:
     llm = get_llm()
     structured_llm = llm.with_structured_output(IntentClassification)
 
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(today=today, tomorrow=tomorrow)
+    messages = [SystemMessage(content=system_prompt)]
 
     for msg in state.get("messages", [])[-6:]:
         role = getattr(msg, "type", "user")
@@ -86,7 +91,7 @@ def supervisor(state: SourdoughState) -> dict:
     logger.info(f"[Supervisor] Intent: {intent} | Params: {intent_params}")
 
     step = {
-        "module": "Supervisor",
+        "module": "supervisor",
         "prompt": state["user_query"],
         "response": json.dumps({"intent": intent, "intent_params": intent_params}),
     }

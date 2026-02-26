@@ -371,6 +371,7 @@
         localStorage.setItem('sg_session', sessionId);
 
         let pollInterval = null;
+        let lastNotifiedStep = null;
 
         const chat = document.getElementById('chat');
         const input = document.getElementById('userInput');
@@ -485,7 +486,7 @@
 
                 if (data.status === 'ok') {
                     addMessage(data.response, 'bot', data.steps);
-                    const hasBakePlan = data.steps && data.steps.some(s => s.module === 'BakePlanningAgent');
+                    const hasBakePlan = data.steps && data.steps.some(s => s.module === 'bake_plan');
                     if (hasBakePlan) startBakePolling(sessionId);
                 } else {
                     addMessage('Error: ' + (data.error || 'Unknown error'), 'bot');
@@ -579,6 +580,9 @@
         }
 
         async function switchSession(newSessionId) {
+            if (newSessionId === sessionId) return; // already on this session
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+            banner.classList.remove('active');
             sessionId = newSessionId;
             localStorage.setItem('sg_session', sessionId);
 
@@ -615,7 +619,7 @@
             banner.textContent = 'Bake plan active — tracking your progress...';
             banner.classList.add('active');
 
-            pollInterval = setInterval(async () => {
+            async function doPoll() {
                 try {
                     const res = await fetch(`${API_BASE}/api/bake_session/${sid}/status`);
                     const status = await res.json();
@@ -629,14 +633,24 @@
                     if (status.current_step) {
                         msg = `Current: ${status.current_step}`;
                         if (status.time_remaining_minutes) msg += ` (${Math.round(status.time_remaining_minutes)} min remaining)`;
+                        if (status.next_step) msg += ` | Next: ${status.next_step}`;
+                    } else if (status.next_step) {
+                        if (status.time_remaining_minutes) {
+                            msg = `Starting in ${Math.round(status.time_remaining_minutes)} min — Next: ${status.next_step}`;
+                        } else {
+                            msg = `Next: ${status.next_step}`;
+                        }
                     }
-                    if (status.next_step) msg += msg ? ` | Next: ${status.next_step}` : `Next: ${status.next_step}`;
                     banner.textContent = msg || 'Bake plan active...';
-                    if (status.time_remaining_minutes && status.time_remaining_minutes <= 5 && Notification.permission === 'granted') {
+                    if (status.time_remaining_minutes && status.time_remaining_minutes <= 5 && Notification.permission === 'granted' && status.current_step !== lastNotifiedStep) {
+                        lastNotifiedStep = status.current_step;
                         new Notification('Sourdough Guru', { body: `${status.current_step} ending in ${Math.round(status.time_remaining_minutes)} minutes. Next: ${status.next_step || 'Done!'}` });
                     }
                 } catch (e) {}
-            }, 30000);
+            }
+
+            doPoll(); // immediate first poll, no 30s wait
+            pollInterval = setInterval(doPoll, 30000);
 
             if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
         }

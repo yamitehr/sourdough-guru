@@ -28,35 +28,54 @@ def _translate_to_english(text: str) -> str:
         SystemMessage(content="Translate the following text to English. Return only the translated text, nothing else."),
         HumanMessage(content=text),
     ]
-    result = llm.invoke(messages, max_tokens=200)
-    translated = result.content.strip()
-    logger.info(f"[Retriever] Translated query: '{text[:80]}' → '{translated[:80]}'")
-    return translated
+    try:
+        result = llm.invoke(messages, max_tokens=200)
+        translated = result.content.strip()
+        if not translated:
+            logger.warning("[Retriever] Translation returned empty result, using original query")
+            return text
+        logger.info(f"[Retriever] Translated query: '{text[:80]}' → '{translated[:80]}'")
+        return translated
+    except Exception as e:
+        logger.warning(f"[Retriever] Translation failed: {e}, using original query")
+        return text
+
+
+MIN_RELEVANCE_SCORE = 0.30
 
 
 def retrieve_context(state: SourdoughState) -> dict:
     """Embed the user query and retrieve top-k relevant chunks from Pinecone."""
     query = _translate_to_english(state["user_query"])
-    intent_params = state.get("intent_params", {})
-
-    pinecone_filter = None
-    if intent_params.get("source_type"):
-        pinecone_filter = {"type": intent_params["source_type"]}
 
     logger.info(f"[Retriever] Querying Pinecone for: {query[:100]}")
 
-    docs = retrieve(query=query, top_k=4, filter=pinecone_filter)
+    try:
+        docs = retrieve(query=query, top_k=4)
+    except Exception as e:
+        logger.error(f"[Retriever] Pinecone retrieval failed: {e}")
+        docs = []
 
+    filtered_docs = []
     for i, doc in enumerate(docs):
-        logger.info(f"[Retriever] Doc {i+1}: {doc.get('source', '?')} (page {doc.get('page', '?')}, score={doc.get('score', '?'):.3f})")
+        score = doc.get("score")
+        score_str = f"{score:.3f}" if isinstance(score, (int, float)) else "?"
+        kept = isinstance(score, (int, float)) and score >= MIN_RELEVANCE_SCORE
+        logger.info(
+            f"[Retriever] Doc {i+1}: {doc.get('source', '?')} "
+            f"(page {doc.get('page', '?')}, score={score_str}, {'KEPT' if kept else 'DROPPED'})"
+        )
+        if kept:
+            filtered_docs.append(doc)
 
+    translated_note = f" (translated from: {state['user_query'][:60]})" if query != state["user_query"] else ""
     step = {
-        "module": "KnowledgeBaseRetriever",
+        "module": "retriever",
         "prompt": query,
-        "response": f"Retrieved {len(docs)} documents",
+        "response": f"Retrieved {len(filtered_docs)} documents (dropped {len(docs) - len(filtered_docs)} below score {MIN_RELEVANCE_SCORE}){translated_note}",
     }
 
     return {
-        "retrieved_docs": docs,
+        "retrieved_docs": filtered_docs,
         "steps": [step],
     }

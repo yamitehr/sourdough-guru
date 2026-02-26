@@ -72,7 +72,7 @@ def clarify(state: SourdoughState) -> dict:
     response = "\n".join(parts)
 
     step = {
-        "module": "ClarificationAgent",
+        "module": "clarify",
         "prompt": f"Intent: {intent}, Params: {params}",
         "response": response,
     }

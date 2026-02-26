@@ -13,11 +13,11 @@ def safe_float(value, default: float) -> float:
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
-        # Strip %, degrees, spaces, units
-        cleaned = re.sub(r"[^\d.\-]", "", value)
-        if cleaned:
+        # Extract the first valid number (handles "75%", "75 - 80%", "-5.5°C", etc.)
+        matches = re.findall(r"-?\d+\.?\d*", value)
+        if matches:
             try:
-                return float(cleaned)
+                return float(matches[0])
             except ValueError:
                 return default
     return default

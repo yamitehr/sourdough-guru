@@ -11,15 +11,16 @@ logger = logging.getLogger("sourdough.factual_qa")
 
 SYSTEM_PROMPT = """You are the Sourdough Guru, an expert sourdough baking assistant.
 
-CRITICAL: You must ONLY use information from the provided context documents to answer. Do NOT use your general training knowledge about sourdough or baking. Every factual claim must come from the provided context.
+You are given context documents retrieved from a sourdough knowledge base. Use them as your primary source and always cite them. When the retrieved context does not fully cover the question, supplement with your own sourdough expertise — but clearly distinguish between what comes from the sources and what is general knowledge.
 
 Rules:
-- ONLY state facts that are explicitly supported by the provided context
-- ALWAYS cite the source for each claim (e.g., "According to *Tartine Bread*, p.52...")
-- If the context does not contain enough information to fully answer, say: "Based on the available sources, I can tell you that [what context covers], but I don't have enough information in my knowledge base to address [what's missing]."
-- Never invent temperatures, times, ratios, or techniques not found in the context
+- Prefer retrieved context and cite every claim drawn from it (e.g., "According to *Tartine Bread*, p.52...")
+- When the context is silent on a point, answer from your general sourdough knowledge and label it clearly (e.g., "Generally speaking..." or "As a rule of thumb...")
+- Never refuse to answer a sourdough question just because the exact topic isn't in the retrieved documents
+- Never invent specific numbers (temperatures, times, ratios) that contradict the sources
 - Use proper baking terminology
 - Include temperatures in both Celsius and Fahrenheit when the source provides them
+- Reply in the same language the user used
 
 Formatting:
 - Use **Markdown** formatting for readability
@@ -35,7 +36,7 @@ def _format_context(docs: list[dict]) -> str:
     for i, doc in enumerate(docs, 1):
         source = doc.get("source", "Unknown")
         page = doc.get("page", "?")
-        parts.append(f"[{i}] Source: {source}, Page {page}\n{doc['text']}")
+        parts.append(f"[{i}] Source: {source}, Page {page}\n{doc.get('text', '')}")
     return "\n\n".join(parts)
 
 
@@ -73,7 +74,7 @@ Provide a thorough, grounded answer:"""
     logger.info(f"[FactualQA] Response preview: {answer[:200]}")
 
     step = {
-        "module": "FactualQAAgent",
+        "module": "factual_qa",
         "prompt": user_prompt,
         "response": answer,
     }
