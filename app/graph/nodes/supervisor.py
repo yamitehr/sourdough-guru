@@ -19,10 +19,10 @@ SYSTEM_PROMPT_TEMPLATE = """You are the routing supervisor for a sourdough bakin
 Classify the user's message into exactly one intent and extract relevant parameters.
 
 Intents:
-- "factual_qa": Questions about sourdough science, techniques, troubleshooting, ingredients, history.
-- "recipe": Requests for a recipe, ingredient list, or formula.
+- "factual_qa": Questions specifically about sourdough or bread baking — science, techniques, troubleshooting, ingredients, fermentation, equipment, history of sourdough.
+- "recipe": Requests for a sourdough recipe, ingredient list, or baking formula.
 - "bake_plan": Requests to plan/schedule a bake day with specific timing.
-- "general": Greetings, meta-questions about the assistant, off-topic.
+- "general": Everything else — greetings, meta-questions about the assistant, weather, news, politics, sports, and ANY question that is NOT about sourdough or bread baking.
 
 Parameter rules:
 - Extract numeric values as plain numbers (e.g. 75 not "75%").

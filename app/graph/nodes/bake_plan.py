@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -50,13 +50,13 @@ def build_timeline(state: SourdoughState) -> dict:
     bulk_hours = estimate_fermentation_time(temp_c, hydration, starter_pct)
     steps = default_bread_steps(bulk_hours, num_loaves)
 
+    # start_time and ready_by are alternative anchors — start_time takes priority
     constraints = {}
-    if params.get("ready_by"):
-        constraints["ready_by"] = params["ready_by"]
-
     start_time = None
     if params.get("start_time"):
         start_time = datetime.fromisoformat(params["start_time"])
+    elif params.get("ready_by"):
+        constraints["ready_by"] = params["ready_by"]
 
     timeline = calculate_timeline(steps, start_time=start_time, constraints=constraints)
 
@@ -70,11 +70,57 @@ def build_timeline(state: SourdoughState) -> dict:
         "hydration": hydration,
     }
 
+    # Check if the calculated start time is in the past
+    if timeline:
+        now = datetime.now()
+        plan_start = datetime.fromisoformat(timeline[0]["start_time"])
+        if plan_start < now:
+            total_minutes = sum(s["duration_minutes"] for s in steps)
+            earliest_finish = now + timedelta(minutes=total_minutes)
+            bake_plan_data["infeasible"] = True
+            bake_plan_data["infeasible_details"] = {
+                "requested_ready_by": params.get("ready_by", ""),
+                "required_start": plan_start.strftime("%Y-%m-%d at %H:%M"),
+                "now": now.strftime("%Y-%m-%d at %H:%M"),
+                "total_hours": round(total_minutes / 60, 1),
+                "earliest_finish": earliest_finish.strftime("%Y-%m-%d at %H:%M"),
+                "earliest_finish_iso": earliest_finish.isoformat(),
+            }
+            logger.warning(
+                f"[Timeline] Infeasible: plan would start {plan_start.strftime('%H:%M')} "
+                f"but it's already {now.strftime('%H:%M')}"
+            )
+
     return {"bake_plan_data": bake_plan_data}
 
 
 def generate_bake_plan(state: SourdoughState) -> dict:
     """Generate a natural-language bake plan from the timeline."""
+    plan_data = state.get("bake_plan_data", {})
+
+    # Infeasibility check — return early without calling the LLM
+    if plan_data.get("infeasible"):
+        d = plan_data["infeasible_details"]
+        answer = (
+            f"**That deadline isn't reachable — the bake would need to have started at "
+            f"{d['required_start']}, which has already passed.**\n\n"
+            f"Here's why: your bake requires **{d['total_hours']} hours** from start to finish "
+            f"(including bulk fermentation and overnight cold retard). "
+            f"Working backwards from your requested ready-by time puts the start in the past.\n\n"
+            f"**What you can do:**\n"
+            f"- **Start right now** — if you begin immediately, your loaves will be ready by "
+            f"**{d['earliest_finish']}**.\n"
+            f"- **Pick a later deadline** — tell me a new ready-by time and I'll build a fresh plan.\n\n"
+            f"Would you like me to plan for **{d['earliest_finish']}** or a different time?"
+        )
+        logger.info(f"[BakePlan] Returned infeasibility notice (start was {d['required_start']})")
+        step = {
+            "module": "bake_plan_infeasible",
+            "prompt": state["user_query"],
+            "response": answer,
+        }
+        return {"response": answer, "steps": [step]}
+
     llm = get_llm()
 
     context_parts = []
@@ -82,7 +128,6 @@ def generate_bake_plan(state: SourdoughState) -> dict:
         context_parts.append(f"[{doc.get('source', '?')}]: {doc.get('text', '')}")
     context = "\n\n".join(context_parts)
 
-    plan_data = state.get("bake_plan_data", {})
     timeline = plan_data.get("timeline", [])
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
@@ -140,6 +185,10 @@ def store_bake_session(state: SourdoughState) -> dict:
 
     plan_data = state.get("bake_plan_data", {})
     session_id = state.get("session_id", "")
+
+    if plan_data.get("infeasible"):
+        logger.info(f"[StoreBakeSession] Skipping save — plan is infeasible")
+        return {}
 
     if plan_data and session_id:
         try:

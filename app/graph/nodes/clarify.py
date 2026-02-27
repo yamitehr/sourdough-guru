@@ -32,6 +32,9 @@ def clarify(state: SourdoughState) -> dict:
     missing = []
     for key, question in required.items():
         if key not in params or params[key] is None:
+            # start_time is an acceptable alternative to ready_by for bake_plan
+            if key == "ready_by" and intent == "bake_plan" and params.get("start_time"):
+                continue
             missing.append(question)
 
     if not missing:
