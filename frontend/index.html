@@ -514,7 +514,7 @@
             chat.innerHTML = '';
             addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
             examples.style.display = 'flex';
-            if (pollInterval) clearInterval(pollInterval);
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
             banner.classList.remove('active');
             input.value = '';
             input.focus();
@@ -615,8 +615,12 @@
 
         // ---- Bake polling ----
         function startBakePolling(sid) {
+            const replacing = pollInterval !== null;
             if (pollInterval) clearInterval(pollInterval);
-            banner.textContent = 'Bake plan active — tracking your progress...';
+            lastNotifiedStep = null; // reset notifications for the new plan
+            banner.textContent = replacing
+                ? 'Previous plan cancelled — new bake plan is now active.'
+                : 'Bake plan active — tracking your progress...';
             banner.classList.add('active');
 
             async function doPoll() {

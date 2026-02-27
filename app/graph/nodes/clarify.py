@@ -10,7 +10,7 @@ logger = logging.getLogger("sourdough.clarify")
 REQUIRED_PARAMS = {
     "bake_plan": {
         "num_loaves": "How many loaves do you need?",
-        "ready_by": "When do you need them ready? (e.g., 6am tomorrow, Saturday 8am)",
+        "ready_by": "When do you need them ready, or when would you like to start? (e.g., 'ready by 7am tomorrow', 'start at 9am Saturday')",
         "temperature_c": "What's your kitchen temperature? (This affects fermentation timing significantly)",
     },
     "recipe": {

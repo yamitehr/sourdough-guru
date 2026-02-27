@@ -26,7 +26,13 @@ Intents:
 
 Parameter rules:
 - Extract numeric values as plain numbers (e.g. 75 not "75%").
-- For ready_by and start_time: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). If the user says "6am" or "6am tomorrow", infer the next occurrence of that time relative to today ({today}) and output a full ISO datetime. Today is {today}. Tomorrow is {tomorrow}. Example: "6am tomorrow" → "{tomorrow}T06:00:00"."""
+- For time parameters: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). Today is {today}. Tomorrow is {tomorrow}.
+- Use "ready_by" when the user specifies when they want the bake FINISHED (e.g., "ready by 7am", "I need them at 6am", "done by morning").
+- Use "start_time" when the user specifies when they want to START baking (e.g., "I'll start at 9am", "start now", "beginning at 8am").
+- Never extract both from the same message — use whichever the user actually stated.
+- The current date and time is {now} (local time). When the user says "start now", "right now", "immediately", or similar, use exactly {now} as the start_time.
+- Example: "ready by 7am tomorrow" → ready_by: "{tomorrow}T07:00:00". "start at 9am tomorrow" → start_time: "{tomorrow}T09:00:00". "start now" → start_time: "{now}".
+- When the user's message is a short follow-up or confirmation (e.g., "start now", "ok let's go", "yes", "do that") in a conversation where baking parameters were already established, carry over ALL previously stated parameters (num_loaves, temperature_c, hydration, flour_type, etc.) from the conversation history — do not drop them just because the current message doesn't repeat them."""
 
 
 class IntentParams(BaseModel):
@@ -62,7 +68,8 @@ def supervisor(state: SourdoughState) -> dict:
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(today=today, tomorrow=tomorrow)
+    now_str = now.strftime("%Y-%m-%dT%H:%M:%S")
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(today=today, tomorrow=tomorrow, now=now_str)
     messages = [SystemMessage(content=system_prompt)]
 
     for msg in state.get("messages", [])[-6:]:

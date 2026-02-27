@@ -70,8 +70,10 @@ def build_timeline(state: SourdoughState) -> dict:
         "hydration": hydration,
     }
 
-    # Check if the calculated start time is in the past
-    if timeline:
+    # Check if the calculated start time is in the past.
+    # Only applies when we worked BACKWARDS from ready_by — if the user
+    # explicitly provided start_time they chose when to start, so skip this check.
+    if timeline and not params.get("start_time"):
         now = datetime.now()
         plan_start = datetime.fromisoformat(timeline[0]["start_time"])
         if plan_start < now:
