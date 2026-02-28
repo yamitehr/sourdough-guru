@@ -76,9 +76,9 @@ def _extract_recipe_from_docs(
     )
     bulk_minutes = int(bulk_hours * 60)
 
-    prompt = f"""You are a baking expert extracting a complete recipe from source documents.
+    prompt = f"""You are a baking expert extracting recipe information from source documents.
 
-Product to find: **{product_name}**
+Product requested: **{product_name}**
 Number of units to make: {num_units}
 Bulk fermentation / first-rise time (already calculated from kitchen temperature): {bulk_hours} hours ({bulk_minutes} minutes)
 
@@ -88,39 +88,47 @@ Source documents:
 ---
 YOUR TASK:
 
-1. Search the documents above for a recipe specifically for **{product_name}**.
-2. If found, extract:
-   a. The full ingredient list, scaled to {num_units} unit(s). Include ALL ingredients —
-      flour, liquids, fats (butter/oil), sweeteners (sugar/honey), eggs, dairy, salt,
-      spices, fillings, glazes, toppings — whatever the recipe calls for.
-   b. Every baking step in the correct order, from mixing through cooling/finishing.
+1. Search the documents for any recipe related to **{product_name}**. Be flexible with naming —
+   e.g. "rye bread" matches "sourdough rye", "dark rye loaf", "rye sourdough", etc.
+   Accept partial matches and related variations.
+
+2. If ANY relevant recipe content is found (even partial — some ingredients or some steps),
+   set "recipe_found" to true and extract whatever is available:
+   a. Ingredients: extract what is mentioned, scaled to {num_units} unit(s). If an exact
+      amount is not stated, make a reasonable estimate based on baker's percentages and note it.
+   b. Steps: every step mentioned in the correct order, from mixing through cooling.
+      Fill gaps with standard sourdough technique where the documents are silent on a step.
 
 3. For any bulk fermentation / first rise step, use exactly {bulk_minutes} minutes.
-4. Be specific in step descriptions: include temperatures, visual cues, pan types, etc.
-5. If the recipe doesn't exist in the documents, set "recipe_found" to false.
+4. Include temperatures, visual cues, and pan types where mentioned in the documents.
+5. Only set "recipe_found" to false if the documents contain NO relevant content at all
+   for this type of bread.
 
 Return ONLY valid JSON in this exact structure (no markdown fences, no extra text):
 
 {{
   "recipe_found": true,
   "ingredients": [
-    {{"name": "bread flour", "amount": "500g"}},
-    {{"name": "unsalted butter, room temperature", "amount": "85g"}},
-    {{"name": "whole milk", "amount": "120ml"}},
-    {{"name": "granulated sugar", "amount": "50g"}}
+    {{"name": "dark rye flour", "amount": "300g"}},
+    {{"name": "bread flour", "amount": "200g"}},
+    {{"name": "water", "amount": "400g"}},
+    {{"name": "sourdough starter", "amount": "100g"}},
+    {{"name": "salt", "amount": "10g"}}
   ],
   "steps": [
-    {{"name": "Mix dough", "duration_minutes": 15, "description": "Combine flour, milk, and starter until a shaggy dough forms."}},
-    {{"name": "Add butter", "duration_minutes": 10, "description": "Add softened butter in small pieces; mix until fully incorporated and dough is smooth."}},
-    {{"name": "Bulk fermentation", "duration_minutes": {bulk_minutes}, "description": "Cover and ferment at room temperature. Perform 3 sets of stretch-and-folds in the first 90 minutes."}}
+    {{"name": "Mix dough", "duration_minutes": 15, "description": "Combine rye and bread flour with water; mix until no dry flour remains."}},
+    {{"name": "Bulk fermentation", "duration_minutes": {bulk_minutes}, "description": "Cover and ferment. Rye dough is sticky — use wet hands for any folds."}}
   ]
 }}
 
-If no recipe found, return:
+If truly no relevant content found, return:
 {{"recipe_found": false, "ingredients": [], "steps": []}}"""
 
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
+        response = llm.invoke([
+            SystemMessage(content="You are a baking expert. Follow the instructions exactly and return only valid JSON."),
+            HumanMessage(content=prompt),
+        ])
         raw = response.content.strip()
 
         # Strip accidental markdown code fences
@@ -373,13 +381,11 @@ def generate_bake_plan(state: SourdoughState) -> dict:
         answer = (
             f"I don't have a **{product_name}** recipe in my knowledge base, "
             f"so I can't build a reliable bake plan for it.\n\n"
-            f"My expertise is in sourdough breads — here are some I can plan for you:\n"
-            f"- **Country Loaf** (Pain de Campagne) — always available with a full verified plan\n"
-            f"- **Whole Wheat Sourdough** — from my sourced techniques\n"
-            f"- **Sourdough Focaccia** — including oil quantities and pan timing\n"
-            f"- **Sourdough Rye** — with rye-specific fermentation guidance\n"
-            f"- **Sourdough Baguettes** — shaping and baking technique included\n\n"
-            f"Which one would you like a bake plan for?"
+            f"My knowledge base focuses on sourdough breads and techniques. "
+            f"**Country Loaf** is the one type I always have a complete, verified plan for. "
+            f"For other sourdough breads (focaccia, rye, whole wheat, baguettes, etc.) I'll search my sources — "
+            f"results depend on what's in the knowledge base.\n\n"
+            f"Would you like a **Country Loaf** plan, or try another sourdough bread?"
         )
         logger.info(f"[BakePlan] '{product_name}' — {timeline_source}, insufficient KB data")
         return {

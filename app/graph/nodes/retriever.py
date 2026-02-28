@@ -56,7 +56,15 @@ def _build_search_query(state: SourdoughState) -> str:
     product = params.get("target_product", "")
 
     if intent in ("bake_plan", "recipe") and product:
-        return f"sourdough {product} bread baking technique fermentation shaping"
+        # Strip trailing "bread"/"loaf" from product to avoid duplication in query
+        # e.g. "rye bread" → "sourdough rye bread baking technique..."
+        #      "focaccia"  → "sourdough focaccia bread baking technique..."
+        product_clean = product.strip()
+        for suffix in (" bread", " loaf", " loaves"):
+            if product_clean.lower().endswith(suffix):
+                product_clean = product_clean[: -len(suffix)].strip()
+                break
+        return f"sourdough {product_clean} bread baking technique fermentation shaping"
 
     return state["user_query"]
 
