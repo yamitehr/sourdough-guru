@@ -30,9 +30,10 @@ Parameter rules:
 - For time parameters: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). Today is {today}. Tomorrow is {tomorrow}.
 - Use "ready_by" when the user specifies when they want the bake FINISHED (e.g., "ready by 7am", "I need them at 6am", "done by morning").
 - Use "start_time" when the user specifies when they want to START baking (e.g., "I'll start at 9am", "start now", "beginning at 8am").
-- Never extract both from the same message — use whichever the user actually stated.
+- If the user explicitly states BOTH a start time AND a finish/ready-by time (e.g. "start at 6pm, done by 8pm"), extract BOTH start_time and ready_by. Otherwise extract only the one the user stated.
 - The current date and time is {now} (local time). When the user says "start now", "right now", "immediately", or similar, use exactly {now} as the start_time.
-- Example: "ready by 7am tomorrow" → ready_by: "{tomorrow}T07:00:00". "start at 9am tomorrow" → start_time: "{tomorrow}T09:00:00". "start now" → start_time: "{now}".
+- For relative finish times ("end in 2 hours", "done in 3 hours", "finish in 90 minutes", "ready in 2 hours"): convert to an absolute ready_by by adding that duration to the current time {now}.
+- Example: "ready by 7am tomorrow" → ready_by: "{tomorrow}T07:00:00". "start at 9am tomorrow" → start_time: "{tomorrow}T09:00:00". "start now" → start_time: "{now}". "start now and done in 2 hours" → start_time: "{now}", ready_by: "{in_2h}". "done in 3 hours" → ready_by: "{in_3h}".
 - When the user's message is a short follow-up or confirmation (e.g., "start now", "ok let's go", "yes", "do that") in a conversation where baking parameters were already established, carry over ALL previously stated parameters (num_loaves, temperature_c, hydration, flour_type, etc.) from the conversation history — do not drop them just because the current message doesn't repeat them.
 - CRITICAL — answering a question: When the assistant's last message asked the user a specific question (e.g., "What's your kitchen temperature?"), interpret the user's reply as the answer to THAT question. For example, if the assistant asked for kitchen temperature and the user replies "22", that means temperature_c=22, NOT a time or any other parameter. Always check the last assistant message for context before interpreting short replies.
 - CRITICAL — switching products: When the user says they want to bake "something else", "a different bread", "switch", or otherwise indicates they want to CHANGE the product type, do NOT carry over target_product from the conversation history. Leave target_product empty so the assistant can ask what they want instead. You may still carry over other parameters like num_loaves and temperature_c if they haven't been explicitly changed."""
@@ -72,7 +73,13 @@ def supervisor(state: SourdoughState) -> dict:
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     now_str = now.strftime("%Y-%m-%dT%H:%M:%S")
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(today=today, tomorrow=tomorrow, now=now_str)
+    in_1h = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    in_2h = (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
+    in_3h = (now + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        today=today, tomorrow=tomorrow, now=now_str,
+        in_1h=in_1h, in_2h=in_2h, in_3h=in_3h,
+    )
     messages = [SystemMessage(content=system_prompt)]
 
     for msg in state.get("messages", [])[-HISTORY_WINDOW:]:

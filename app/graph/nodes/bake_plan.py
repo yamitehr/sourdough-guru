@@ -284,6 +284,8 @@ def build_timeline(state: SourdoughState) -> dict:
     # -----------------------------------------------------------------------
     constraints = {}
     start_time = None
+    has_both = bool(params.get("start_time") and params.get("ready_by"))
+
     if params.get("start_time"):
         try:
             start_time = _parse_time(params["start_time"])
@@ -323,14 +325,38 @@ def build_timeline(state: SourdoughState) -> dict:
         "custom_product": custom_product,
     }
 
-    # Infeasibility check — only when working backwards from ready_by
-    if timeline and not params.get("start_time") and params.get("ready_by"):
+    # Infeasibility check — both start_time AND ready_by provided
+    if timeline and has_both:
+        try:
+            actual_finish = datetime.fromisoformat(timeline[-1]["end_time"])
+            ready_dt = _parse_time(params["ready_by"])
+            if actual_finish > ready_dt:
+                total_minutes = sum(s["duration_minutes"] for s in steps)
+                bake_plan_data["infeasible"] = True
+                bake_plan_data["infeasible_reason"] = "both_constraints"
+                bake_plan_data["infeasible_details"] = {
+                    "start_time": start_time.strftime("%Y-%m-%d at %H:%M"),
+                    "ready_by": ready_dt.strftime("%Y-%m-%d at %H:%M"),
+                    "actual_finish": actual_finish.strftime("%Y-%m-%d at %H:%M"),
+                    "total_hours": round(total_minutes / 60, 1),
+                    "available_hours": round((ready_dt - start_time).total_seconds() / 3600, 1),
+                }
+                logger.warning(
+                    f"[Timeline] Both constraints infeasible: starts {start_time.strftime('%H:%M')}, "
+                    f"needs {round(total_minutes/60, 1)}h but window closes {ready_dt.strftime('%H:%M')}"
+                )
+        except Exception as e:
+            logger.warning(f"[Timeline] Both-constraints check failed: {e}")
+
+    # Infeasibility check — only ready_by provided, working backwards
+    elif timeline and not params.get("start_time") and params.get("ready_by"):
         now = datetime.now()
         plan_start = datetime.fromisoformat(timeline[0]["start_time"])
         if plan_start < now:
             total_minutes = sum(s["duration_minutes"] for s in steps)
             earliest_finish = now + timedelta(minutes=total_minutes)
             bake_plan_data["infeasible"] = True
+            bake_plan_data["infeasible_reason"] = "past_start"
             bake_plan_data["infeasible_details"] = {
                 "requested_ready_by": params.get("ready_by", ""),
                 "required_start": plan_start.strftime("%Y-%m-%d at %H:%M"),
@@ -355,7 +381,26 @@ def generate_bake_plan(state: SourdoughState) -> dict:
     """Generate a natural-language bake plan from the timeline."""
     plan_data = state.get("bake_plan_data", {})
 
-    # --- Infeasibility early return ---
+    # --- Infeasibility: both start_time and ready_by given but window too short ---
+    if plan_data.get("infeasible") and plan_data.get("infeasible_reason") == "both_constraints":
+        d = plan_data["infeasible_details"]
+        answer = (
+            f"**That window doesn't work** — your bake needs **{d['total_hours']} hours** but you've "
+            f"only left **{d['available_hours']} hours** between "
+            f"**{d['start_time']}** and **{d['ready_by']}**.\n\n"
+            f"Please pick **one** constraint and I'll handle the other:\n\n"
+            f"- **Give me a start time** → I'll calculate when the loaves will be ready.\n"
+            f"  _(e.g. if you start at {d['start_time'].split(' at ')[-1]}, "
+            f"they'll be ready at **{d['actual_finish'].split(' at ')[-1]}**)_\n\n"
+            f"- **Give me a ready-by time** → I'll work out your start time and tell you "
+            f"if it's still achievable.\n\n"
+            f"Which would you prefer?"
+        )
+        logger.info(f"[BakePlan] Both-constraints infeasible: {d['available_hours']}h available, {d['total_hours']}h needed")
+        return {"response": answer, "steps": [{"module": "bake_plan_infeasible",
+                                                "prompt": state["user_query"], "response": answer}]}
+
+    # --- Infeasibility: ready_by too soon (start would be in the past) ---
     if plan_data.get("infeasible"):
         d = plan_data["infeasible_details"]
         answer = (
