@@ -9,7 +9,7 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from app.graph.state import SourdoughState
+from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 
 logger = logging.getLogger("sourdough.supervisor")
@@ -26,13 +26,16 @@ Intents:
 
 Parameter rules:
 - Extract numeric values as plain numbers (e.g. 75 not "75%").
+- temperature_c must ALWAYS be in Celsius. If the user provides Fahrenheit (e.g., "72°F", "72 degrees"), convert to Celsius: (F-32)×5/9. Example: "72°F" → temperature_c: 22.
 - For time parameters: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). Today is {today}. Tomorrow is {tomorrow}.
 - Use "ready_by" when the user specifies when they want the bake FINISHED (e.g., "ready by 7am", "I need them at 6am", "done by morning").
 - Use "start_time" when the user specifies when they want to START baking (e.g., "I'll start at 9am", "start now", "beginning at 8am").
 - Never extract both from the same message — use whichever the user actually stated.
 - The current date and time is {now} (local time). When the user says "start now", "right now", "immediately", or similar, use exactly {now} as the start_time.
 - Example: "ready by 7am tomorrow" → ready_by: "{tomorrow}T07:00:00". "start at 9am tomorrow" → start_time: "{tomorrow}T09:00:00". "start now" → start_time: "{now}".
-- When the user's message is a short follow-up or confirmation (e.g., "start now", "ok let's go", "yes", "do that") in a conversation where baking parameters were already established, carry over ALL previously stated parameters (num_loaves, temperature_c, hydration, flour_type, etc.) from the conversation history — do not drop them just because the current message doesn't repeat them."""
+- When the user's message is a short follow-up or confirmation (e.g., "start now", "ok let's go", "yes", "do that") in a conversation where baking parameters were already established, carry over ALL previously stated parameters (num_loaves, temperature_c, hydration, flour_type, etc.) from the conversation history — do not drop them just because the current message doesn't repeat them.
+- CRITICAL — answering a question: When the assistant's last message asked the user a specific question (e.g., "What's your kitchen temperature?"), interpret the user's reply as the answer to THAT question. For example, if the assistant asked for kitchen temperature and the user replies "22", that means temperature_c=22, NOT a time or any other parameter. Always check the last assistant message for context before interpreting short replies.
+- CRITICAL — switching products: When the user says they want to bake "something else", "a different bread", "switch", or otherwise indicates they want to CHANGE the product type, do NOT carry over target_product from the conversation history. Leave target_product empty so the assistant can ask what they want instead. You may still carry over other parameters like num_loaves and temperature_c if they haven't been explicitly changed."""
 
 
 class IntentParams(BaseModel):
@@ -72,7 +75,7 @@ def supervisor(state: SourdoughState) -> dict:
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(today=today, tomorrow=tomorrow, now=now_str)
     messages = [SystemMessage(content=system_prompt)]
 
-    for msg in state.get("messages", [])[-6:]:
+    for msg in state.get("messages", [])[-HISTORY_WINDOW:]:
         role = getattr(msg, "type", "user")
         content = getattr(msg, "content", str(msg))
         if role == "human":
@@ -89,11 +92,40 @@ def supervisor(state: SourdoughState) -> dict:
             warnings.simplefilter("ignore", UserWarning)
             result: IntentClassification = structured_llm.invoke(messages)
         intent = result.intent
-        intent_params = result.intent_params.model_dump(exclude_none=True)
+        intent_params = {
+            k: v for k, v in result.intent_params.model_dump(exclude_none=True).items()
+            if v != ""
+        }
     except Exception as e:
         logger.warning(f"[Supervisor] Structured output failed: {e}, falling back to general")
         intent = "general"
         intent_params = {}
+
+    # Deterministic param merging: if the intent is the same as the previous turn,
+    # merge new params ON TOP of old params so values aren't lost across turns.
+    # New non-empty values override; old values are preserved if not re-extracted.
+    prev_intent = state.get("intent", "")
+    prev_params = state.get("intent_params", {})
+    if intent == prev_intent and prev_params:
+        # When the product is changing, only carry over universal params
+        # (num_loaves, temperature_c, timing). Product-specific params like
+        # hydration, starter_pct, flour_g etc. should reset to the new type's defaults.
+        prev_product = prev_params.get("target_product", "")
+        new_product = intent_params.get("target_product", "")
+        product_changing = (
+            new_product and prev_product
+            and new_product.lower() != prev_product.lower()
+        ) or (not new_product and prev_product)  # user wants "something else"
+
+        if product_changing:
+            _UNIVERSAL_PARAMS = {"num_loaves", "temperature_c", "start_time", "ready_by"}
+            carry_over = {k: v for k, v in prev_params.items() if k in _UNIVERSAL_PARAMS}
+            merged = {**carry_over, **intent_params}
+            logger.info(f"[Supervisor] Product change — carrying over only universal params: {carry_over}")
+        else:
+            merged = {**prev_params, **intent_params}
+            logger.info(f"[Supervisor] Merged with prev params: {prev_params} + {intent_params} = {merged}")
+        intent_params = merged
 
     logger.info(f"[Supervisor] Intent: {intent} | Params: {intent_params}")
 
@@ -106,5 +138,6 @@ def supervisor(state: SourdoughState) -> dict:
     return {
         "intent": intent,
         "intent_params": intent_params,
+        "response": "",  # clear stale response from previous turn
         "steps": [step],
     }

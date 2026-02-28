@@ -81,7 +81,7 @@ def save_session(session_id: str, messages: list[dict]) -> None:
     payload = {
         "session_id": session_id,
         "messages": json.dumps(messages),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now().isoformat(),
     }
     headers = _headers()
     # Upsert: use Prefer: resolution=merge-duplicates

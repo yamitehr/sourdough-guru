@@ -150,3 +150,122 @@ def default_bread_steps(
         {"name": "Bake (uncovered)", "duration_minutes": 25, "description": "Remove lid, bake until deep golden brown."},
         {"name": "Cool", "duration_minutes": 60, "description": "Cool on wire rack — resist cutting for at least 1 hour."},
     ]
+
+
+# ---------------------------------------------------------------------------
+# Bread-type registry
+# ---------------------------------------------------------------------------
+
+BREAD_TYPES: dict[str, dict] = {
+    "country_loaf": {
+        "display_name": "Country Loaf (Pain de Campagne)",
+        "default_hydration": 75.0,
+        "default_starter_pct": 20.0,
+        "default_salt_pct": 2.0,
+        "flour_per_unit_g": 500,
+        "fermentation_factor": 1.0,
+        "extras": {},
+        "flour_note": None,
+    },
+}
+
+_PRODUCT_ALIASES: dict[str, str] = {
+    # country loaf (+ generic terms that map here)
+    "country loaf": "country_loaf",
+    "country_loaf": "country_loaf",
+    "pain de campagne": "country_loaf",
+    "sourdough loaf": "country_loaf",
+    "basic loaf": "country_loaf",
+    "standard loaf": "country_loaf",
+    "white sourdough": "country_loaf",
+    "sourdough": "country_loaf",
+    "loaf": "country_loaf",
+    "loaves": "country_loaf",
+    "bread": "country_loaf",
+    "white bread": "country_loaf",
+    "sourdough bread": "country_loaf",
+}
+
+
+def normalize_product_type(target_product: str) -> str | None:
+    """Normalize a product string to a known BREAD_TYPES key, or None if unrecognized.
+
+    Tries exact match first, then strips common suffixes/prefixes and retries.
+    """
+    if not target_product:
+        return None
+    key = target_product.strip().lower().replace("-", " ")
+
+    # Exact match
+    result = _PRODUCT_ALIASES.get(key)
+    if result:
+        return result
+
+    # Iteratively strip common suffixes and prefixes, retrying after each strip
+    _SUFFIXES = [" loaves", " loaf", " bread", " sourdough"]
+    _PREFIXES = ["sourdough "]
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _SUFFIXES:
+            if key.endswith(suffix):
+                key = key[: -len(suffix)].strip()
+                changed = True
+                result = _PRODUCT_ALIASES.get(key)
+                if result:
+                    return result
+        for prefix in _PREFIXES:
+            if key.startswith(prefix):
+                key = key[len(prefix) :].strip()
+                changed = True
+                result = _PRODUCT_ALIASES.get(key)
+                if result:
+                    return result
+
+    return None
+
+
+def compute_recipe(
+    product_type: str,
+    flour_g: float,
+    hydration_pct: float | None = None,
+    starter_pct: float | None = None,
+    salt_pct: float | None = None,
+) -> dict:
+    """Compute ingredient weights (grams) from baker's percentages.
+
+    Falls back to BREAD_TYPES defaults for any None parameter.
+    """
+    config = BREAD_TYPES.get(product_type, BREAD_TYPES["country_loaf"])
+    h = hydration_pct if hydration_pct is not None else config["default_hydration"]
+    sp = starter_pct if starter_pct is not None else config["default_starter_pct"]
+    saltp = salt_pct if salt_pct is not None else config["default_salt_pct"]
+
+    water_g = round(flour_g * h / 100, 1)
+    starter_g = round(flour_g * sp / 100, 1)
+    salt_g = round(flour_g * saltp / 100, 1)
+
+    extras: dict[str, float] = {
+        key: round(flour_g / config["flour_per_unit_g"] * per_unit, 1)
+        for key, per_unit in config["extras"].items()
+    }
+
+    total_g = round(flour_g + water_g + starter_g + salt_g + sum(extras.values()), 1)
+
+    recipe: dict = {
+        "flour_g": flour_g,
+        "water_g": water_g,
+        "starter_g": starter_g,
+        "salt_g": salt_g,
+        "total_dough_g": total_g,
+        "hydration_pct": h,
+        "starter_pct": sp,
+        "salt_pct": saltp,
+    }
+    if extras:
+        recipe["extras"] = extras
+    if config.get("flour_note"):
+        recipe["flour_note"] = config["flour_note"]
+    return recipe
+
+

@@ -5,7 +5,7 @@ import logging
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from app.graph.state import SourdoughState
+from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 from app.graph.nodes.param_utils import safe_float
 from app.tools.baking_math import (
@@ -17,7 +17,7 @@ logger = logging.getLogger("sourdough.recipe")
 
 SYSTEM_PROMPT = """You are the Sourdough Guru, an expert recipe creator for sourdough baking.
 
-CRITICAL: Build the recipe ONLY from the provided context documents and the baking math results. Do NOT use your general training knowledge. Every technique, temperature, time, and tip must come from the provided sources.
+CRITICAL: Build the recipe ONLY from the provided context documents and the baking math results. Do NOT use your general training knowledge. Every technique, temperature, time, tip, and ingredient amount must come from the provided sources.
 
 Your recipe MUST include:
 1. Recipe name and brief description
@@ -31,7 +31,8 @@ Your recipe MUST include:
 Rules:
 - Use the baking math results for all ingredient quantities (do not recalculate)
 - Cite the source for techniques, temperatures, and times (e.g., "as described in *Tartine Bread*")
-- If the retrieved context doesn't cover a specific aspect the user asked about, say so explicitly rather than filling in from general knowledge
+- If the retrieved context doesn't have enough information for a specific aspect (e.g., missing ingredient amounts, missing technique), say so explicitly — do NOT fill in from general knowledge. Instead, tell the user what you do have and suggest a recipe that IS well-covered in your sources
+- The ingredient table must be clean: only Ingredient, Weight, and Baker's % columns — no source annotations inside the table
 
 Formatting:
 - Use **Markdown** formatting for readability
@@ -98,7 +99,7 @@ def generate_recipe(state: SourdoughState) -> dict:
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    for msg in state.get("messages", [])[-6:]:
+    for msg in state.get("messages", [])[-HISTORY_WINDOW:]:
         role = getattr(msg, "type", "user")
         content = getattr(msg, "content", str(msg))
         if role == "human":

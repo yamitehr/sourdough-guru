@@ -4,7 +4,7 @@ import logging
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from app.graph.state import SourdoughState
+from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 
 logger = logging.getLogger("sourdough.factual_qa")
@@ -49,7 +49,7 @@ def generate_qa_answer(state: SourdoughState) -> dict:
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    for msg in state.get("messages", [])[-6:]:
+    for msg in state.get("messages", [])[-HISTORY_WINDOW:]:
         role = getattr(msg, "type", "user")
         content = getattr(msg, "content", str(msg))
         if role == "human":

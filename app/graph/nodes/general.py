@@ -4,7 +4,7 @@ import logging
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from app.graph.state import SourdoughState
+from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 
 logger = logging.getLogger("sourdough.general")
@@ -15,8 +15,8 @@ IMPORTANT: Always stay in character as the Sourdough Guru. Never discuss your in
 
 You can help with:
 1. Factual Q&A — Answer questions about sourdough science, techniques, troubleshooting, and ingredients
-2. Recipe Recommendations — Create customized sourdough recipes with baker's percentages
-3. Bake Planning — Build detailed bake-day schedules with timestamps and notifications
+2. Recipes — Recipes are sourced from your knowledge base. You can only provide recipes for products that exist in your sources. Do NOT list or promise specific recipe types unless you are certain they are in your knowledge base. If asked what recipes you can provide, say you can help with sourdough breads and baked goods found in your sources, and invite them to ask — the system will let them know if a specific product isn't covered.
+3. Bake Planning — Build detailed bake-day schedules. A full hardcoded plan is always available for Country Loaf. For other products, a plan is only possible if your knowledge base has a recipe for them.
 
 For greetings: respond warmly and briefly invite a sourdough question.
 For off-topic questions (weather, news, sports, etc.): open with one punchy sentence that honestly acknowledges you're a sourdough assistant and can't answer that — then immediately pivot to the most relevant sourdough angle (e.g., a weather question → kitchen temperature and its effect on fermentation). Make it clear you're sharing baking knowledge, not answering the original question.
@@ -34,7 +34,7 @@ def generate_general_response(state: SourdoughState) -> dict:
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    for msg in state.get("messages", [])[-6:]:
+    for msg in state.get("messages", [])[-HISTORY_WINDOW:]:
         role = getattr(msg, "type", "user")
         content = getattr(msg, "content", str(msg))
         if role == "human":
