@@ -50,6 +50,10 @@ def clarify(state: SourdoughState) -> dict:
             # the retriever + LLM will try to build a plan from knowledge base docs
             if key == "target_product" and intent == "bake_plan" and params.get("target_product"):
                 continue
+            # If hydration is not provided then the retriever and LLM will try to build
+            # a recipe from knowledge base docs
+            if key == "hydration" and intent == "recipe" and params.get("target_product"):
+                continue
             missing.append(question)
 
     if not missing:
