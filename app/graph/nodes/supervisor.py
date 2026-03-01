@@ -4,6 +4,8 @@ import json
 import logging
 import warnings
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
@@ -70,7 +72,7 @@ def supervisor(state: SourdoughState) -> dict:
     llm = get_llm()
     structured_llm = llm.with_structured_output(IntentClassification)
 
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     now_str = now.strftime("%Y-%m-%dT%H:%M:%S")
