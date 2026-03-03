@@ -6,6 +6,7 @@ Uses the PostgREST API directly to avoid supabase-py key format issues.
 import json
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -81,7 +82,7 @@ def save_session(session_id: str, messages: list[dict]) -> None:
     payload = {
         "session_id": session_id,
         "messages": json.dumps(messages),
-        "updated_at": datetime.now().isoformat(),
+        "updated_at": datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None).isoformat(),
     }
     headers = _headers()
     # Upsert: use Prefer: resolution=merge-duplicates
@@ -122,7 +123,7 @@ def save_bake_plan(session_id: str, plan_data: dict) -> str:
     payload = {
         "session_id": session_id,
         "plan_data": json.dumps(plan_data),
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None).isoformat(),
         "active": True,
     }
     headers["Prefer"] = "return=representation"
@@ -148,7 +149,7 @@ def get_bake_status(session_id: str) -> dict:
         plan_data = json.loads(plan_data)
 
     timeline = plan_data.get("timeline", [])
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
 
     current_step = None
     next_step = None

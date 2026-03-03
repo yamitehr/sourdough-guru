@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -291,7 +292,7 @@ def build_timeline(state: SourdoughState) -> dict:
             start_time = _parse_time(params["start_time"])
         except (ValueError, TypeError):
             logger.warning(f"[Timeline] Could not parse start_time '{params['start_time']}', using now")
-            start_time = datetime.now()
+            start_time = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
     elif params.get("ready_by"):
         constraints["ready_by"] = params["ready_by"]
 
@@ -350,7 +351,7 @@ def build_timeline(state: SourdoughState) -> dict:
 
     # Infeasibility check — only ready_by provided, working backwards
     elif timeline and not params.get("start_time") and params.get("ready_by"):
-        now = datetime.now()
+        now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
         plan_start = datetime.fromisoformat(timeline[0]["start_time"])
         if plan_start < now:
             total_minutes = sum(s["duration_minutes"] for s in steps)

@@ -3,6 +3,7 @@
 import math
 import re
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 
 def calculate_hydration(water_g: float, flour_g: float) -> float:
@@ -81,7 +82,7 @@ def _parse_time(time_str: str) -> datetime:
         elif period == "am" and hour == 12:
             hour = 0
 
-        now = datetime.now()
+        now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         # If the target time is in the past, assume tomorrow
         if target <= now:
@@ -115,7 +116,7 @@ def calculate_timeline(
             ready_by = _parse_time(ready_by)
         start_time = ready_by - timedelta(minutes=total_minutes)
     elif start_time is None:
-        start_time = datetime.now()
+        start_time = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
 
     timeline = []
     current = start_time
