@@ -9,6 +9,8 @@ from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 from app.graph.nodes.param_utils import safe_float
 from app.tools.baking_math import (
+    BREAD_TYPES,
+    normalize_product_type,
     calculate_bakers_percentages,
     calculate_hydration,
 )
@@ -55,10 +57,17 @@ def compute_baking_math(state: SourdoughState) -> dict:
     """Run deterministic baking math calculations."""
     params = state.get("intent_params", {})
 
+    # Resolve bread type config for defaults (mirrors bake_plan.py approach)
+    raw_product = params.get("target_product", "")
+    product_type = normalize_product_type(raw_product or "") or "country_loaf"
+    bread_config = BREAD_TYPES.get(product_type, BREAD_TYPES["country_loaf"])
+
     flour_g = safe_float(params.get("flour_g"), 1000)
-    hydration = safe_float(params.get("hydration"), 75)
-    starter_pct = safe_float(params.get("starter_pct"), 20)
-    salt_pct = safe_float(params.get("salt_pct"), 2)
+    hydration = safe_float(params.get("hydration"), bread_config["default_hydration"])
+    starter_pct = safe_float(
+        params.get("starter_pct"), bread_config["default_starter_pct"]
+    )
+    salt_pct = safe_float(params.get("salt_pct"), bread_config["default_salt_pct"])
 
     water_g = flour_g * (hydration / 100)
     starter_g = flour_g * (starter_pct / 100)
@@ -113,7 +122,7 @@ def generate_recipe(state: SourdoughState) -> dict:
 Baking math results:
 {json.dumps(math, indent=2)}
 
-User request: {state['user_query']}
+User request: {state["user_query"]}
 
 Create a detailed sourdough recipe:"""
 
