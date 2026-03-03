@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -52,6 +53,7 @@ Formatting:
 # ---------------------------------------------------------------------------
 # Recipe extraction from knowledge base docs
 # ---------------------------------------------------------------------------
+
 
 def _extract_recipe_from_docs(
     docs: list[dict],
@@ -125,10 +127,14 @@ If truly no relevant content found, return:
 {{"recipe_found": false, "ingredients": [], "steps": []}}"""
 
     try:
-        response = llm.invoke([
-            SystemMessage(content="You are a baking expert. Follow the instructions exactly and return only valid JSON."),
-            HumanMessage(content=prompt),
-        ])
+        response = llm.invoke(
+            [
+                SystemMessage(
+                    content="You are a baking expert. Follow the instructions exactly and return only valid JSON."
+                ),
+                HumanMessage(content=prompt),
+            ]
+        )
         raw = response.content.strip()
 
         # Strip accidental markdown code fences
@@ -148,7 +154,9 @@ If truly no relevant content found, return:
         recipe_found = bool(data.get("recipe_found", False))
 
         if not recipe_found:
-            logger.info(f"[RecipeExtraction] LLM reports no recipe for '{product_name}' in docs")
+            logger.info(
+                f"[RecipeExtraction] LLM reports no recipe for '{product_name}' in docs"
+            )
             return {"recipe_found": False, "ingredients": [], "steps": []}
 
         # Validate and sanitise steps
@@ -163,7 +171,9 @@ If truly no relevant content found, return:
             except (KeyError, ValueError, TypeError):
                 continue
             if name and dur > 0:
-                valid_steps.append({"name": name, "duration_minutes": dur, "description": desc})
+                valid_steps.append(
+                    {"name": name, "duration_minutes": dur, "description": desc}
+                )
 
         # Validate and sanitise ingredients
         valid_ingredients = []
@@ -187,7 +197,9 @@ If truly no relevant content found, return:
         }
 
     except json.JSONDecodeError as e:
-        logger.warning(f"[RecipeExtraction] JSON parse error: {e}. Raw: {response.content[:200] if 'response' in dir() else 'N/A'}")
+        logger.warning(
+            f"[RecipeExtraction] JSON parse error: {e}. Raw: {response.content[:200] if 'response' in dir() else 'N/A'}"
+        )
         return None
     except Exception as e:
         logger.warning(f"[RecipeExtraction] Extraction failed: {e}")
@@ -195,8 +207,140 @@ If truly no relevant content found, return:
 
 
 # ---------------------------------------------------------------------------
+# Baker's percentage parsing from extracted ingredients
+# ---------------------------------------------------------------------------
+
+# Keyword sets for ingredient classification
+_FLOUR_KEYWORDS = {
+    "flour",
+    "rye",
+    "wheat",
+    "spelt",
+    "emmer",
+    "einkorn",
+    "whole wheat",
+    "wholemeal",
+    "bread flour",
+    "all-purpose",
+    "all purpose",
+    "white flour",
+    "dark flour",
+}
+_STARTER_KEYWORDS = {
+    "starter",
+    "levain",
+    "pre-ferment",
+    "preferment",
+    "sourdough starter",
+    "leaven",
+    "poolish",
+    "biga",
+}
+_SALT_KEYWORDS = {"salt"}
+_WATER_KEYWORDS = {"water", "liquid", "milk", "buttermilk"}
+
+
+def _classify_ingredient(name: str) -> str:
+    """Map a freeform ingredient name to one of: flour | starter | salt | water | other."""
+    n = name.lower().strip()
+    if any(k in n for k in _SALT_KEYWORDS):
+        return "salt"
+    if any(k in n for k in _STARTER_KEYWORDS):
+        return "starter"
+    if any(k in n for k in _FLOUR_KEYWORDS):
+        return "flour"
+    if any(k in n for k in _WATER_KEYWORDS):
+        return "water"
+    return "other"
+
+
+def _parse_grams(amount_str: str) -> float | None:
+    """Extract a gram value from a freeform amount string like '100g', '100 g', '0.5 kg'.
+
+    Returns None if no numeric value can be parsed or if the unit is clearly non-gram
+    (e.g. 'tsp', 'tbsp', 'cups' — volume units that can't be reliably converted).
+    """
+    if not amount_str:
+        return None
+    s = amount_str.lower().strip()
+
+    # Reject obvious volume units that cannot be reliably converted to grams
+    if re.search(r"(tsp|tbsp|cup|cups|ml|l\b|oz|lb|lbs|litre|liter)", s):
+        return None
+
+    # Handle kg → g
+    kg_match = re.search(r"([\d.]+)\s*kg", s)
+    if kg_match:
+        try:
+            return float(kg_match.group(1)) * 1000
+        except ValueError:
+            return None
+
+    # Extract first numeric value (handles "300g", "300 g", "300", "~300g")
+    match = re.search(r"[\d.]+", s)
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_baker_pcts_from_ingredients(
+    ingredients: list[dict],
+) -> dict[str, float | None]:
+    """Compute baker's percentages for starter and salt from extracted ingredient list.
+
+    Ingredient dicts have the shape: {"name": str, "amount": str}
+    Amount strings are freeform (e.g. "300g", "100 g", "0.5 kg").
+
+    Returns:
+        {"starter_pct": float | None, "salt_pct": float | None}
+
+    Returns None for a value when:
+    - The relevant ingredient is absent from the list
+    - Total flour weight is zero or cannot be parsed
+    - The gram amount cannot be reliably parsed (volume units, etc.)
+    """
+    totals: dict[str, float] = {"flour": 0.0, "starter": 0.0, "salt": 0.0, "water": 0.0}
+
+    for ing in ingredients:
+        category = _classify_ingredient(ing.get("name", ""))
+        if category not in totals:
+            continue
+        grams = _parse_grams(ing.get("amount", ""))
+        if grams is not None:
+            totals[category] += grams
+
+    flour_g = totals["flour"]
+    if flour_g <= 0:
+        logger.info(
+            "[BakerPcts] Cannot compute percentages: total flour weight is 0 or unparseable"
+        )
+        return {"starter_pct": None, "salt_pct": None}
+
+    result: dict[str, float | None] = {}
+
+    if totals["starter"] > 0:
+        result["starter_pct"] = round(totals["starter"] / flour_g * 100, 1)
+    else:
+        result["starter_pct"] = None
+
+    if totals["salt"] > 0:
+        result["salt_pct"] = round(totals["salt"] / flour_g * 100, 1)
+    else:
+        result["salt_pct"] = None
+
+    logger.info(
+        f"[BakerPcts] flour={flour_g}g → "
+        f"starter_pct={result['starter_pct']}, salt_pct={result['salt_pct']}"
+    )
+    return result
+
+
 # Timeline builder
 # ---------------------------------------------------------------------------
+
 
 def build_timeline(state: SourdoughState) -> dict:
     """Build a baking timeline from parameters.
@@ -220,16 +364,34 @@ def build_timeline(state: SourdoughState) -> dict:
     bread_config = BREAD_TYPES.get(product_type, BREAD_TYPES["country_loaf"])
 
     temp_c = max(3.0, min(safe_float(params.get("temperature_c"), 24), 40.0))
-    hydration = max(50.0, min(safe_float(params.get("hydration"), bread_config["default_hydration"]), 100.0))
-    starter_pct = max(5.0, min(safe_float(params.get("starter_pct"), bread_config["default_starter_pct"]), 50.0))
+    hydration = max(
+        50.0,
+        min(
+            safe_float(params.get("hydration"), bread_config["default_hydration"]),
+            100.0,
+        ),
+    )
+    starter_pct = max(
+        5.0,
+        min(
+            safe_float(params.get("starter_pct"), bread_config["default_starter_pct"]),
+            50.0,
+        ),
+    )
     num_loaves = max(1, min(safe_int(params.get("num_loaves"), 1), 20))
-    flour_g = max(100.0, safe_float(params.get("flour_g"), num_loaves * bread_config["flour_per_unit_g"]))
+    flour_g = max(
+        100.0,
+        safe_float(
+            params.get("flour_g"), num_loaves * bread_config["flour_per_unit_g"]
+        ),
+    )
 
     raw_bulk = estimate_fermentation_time(temp_c, hydration, starter_pct)
     bulk_hours = round(raw_bulk * bread_config["fermentation_factor"], 1)
 
     product_display_name = (
-        bread_config["display_name"] if not custom_product
+        bread_config["display_name"]
+        if not custom_product
         else (raw_product or "").strip()
     )
 
@@ -239,6 +401,9 @@ def build_timeline(state: SourdoughState) -> dict:
     timeline_source: str
     extracted_ingredients: list[dict] = []
     retrieved_docs = state.get("retrieved_docs", [])
+    _rag_salt_pct: float | None = (
+        None  # set in the extraction branch if RAG provides it
+    )
 
     if not custom_product:
         # Country loaf — hardcoded template, no LLM call needed
@@ -262,13 +427,17 @@ def build_timeline(state: SourdoughState) -> dict:
             # LLM/parse failure — fall back gracefully, don't crash
             steps = default_bread_steps(bulk_hours, num_loaves)
             timeline_source = "no_recipe_found"
-            logger.warning(f"[Timeline] Extraction returned None for '{product_display_name}' — using fallback")
+            logger.warning(
+                f"[Timeline] Extraction returned None for '{product_display_name}' — using fallback"
+            )
 
         elif not extracted["recipe_found"] or not extracted["steps"]:
             # Docs found but no matching recipe inside them
             steps = default_bread_steps(bulk_hours, num_loaves)
             timeline_source = "no_recipe_found"
-            logger.info(f"[Timeline] No recipe for '{product_display_name}' found in docs")
+            logger.info(
+                f"[Timeline] No recipe for '{product_display_name}' found in docs"
+            )
 
         else:
             steps = extracted["steps"]
@@ -278,6 +447,32 @@ def build_timeline(state: SourdoughState) -> dict:
                 f"[Timeline] Extracted {len(steps)} steps, "
                 f"{len(extracted_ingredients)} ingredients for '{product_display_name}'"
             )
+
+            # Back-fill starter_pct / salt_pct from RAG ingredients when the user
+            # did not explicitly provide them.  User-supplied values always win.
+            if extracted_ingredients:
+                rag_pcts = _parse_baker_pcts_from_ingredients(extracted_ingredients)
+                if rag_pcts["starter_pct"] is not None and "starter_pct" not in params:
+                    starter_pct = max(5.0, min(rag_pcts["starter_pct"], 50.0))
+                    logger.info(
+                        f"[Timeline] Using RAG-derived starter_pct={starter_pct}% "
+                        f"(user did not specify)"
+                    )
+                if rag_pcts["salt_pct"] is not None and "salt_pct" not in params:
+                    # Store for use in compute_recipe below; keep a local var
+                    _rag_salt_pct = rag_pcts["salt_pct"]
+                    logger.info(
+                        f"[Timeline] Using RAG-derived salt_pct={_rag_salt_pct}% "
+                        f"(user did not specify)"
+                    )
+                else:
+                    _rag_salt_pct = None
+            else:
+                _rag_salt_pct = None
+
+            # Re-compute bulk fermentation with the (possibly updated) starter_pct
+            raw_bulk = estimate_fermentation_time(temp_c, hydration, starter_pct)
+            bulk_hours = round(raw_bulk * bread_config["fermentation_factor"], 1)
 
     # -----------------------------------------------------------------------
     # Compute timestamps deterministically
@@ -290,7 +485,9 @@ def build_timeline(state: SourdoughState) -> dict:
         try:
             start_time = _parse_time(params["start_time"])
         except (ValueError, TypeError):
-            logger.warning(f"[Timeline] Could not parse start_time '{params['start_time']}', using now")
+            logger.warning(
+                f"[Timeline] Could not parse start_time '{params['start_time']}', using now"
+            )
             start_time = datetime.now()
     elif params.get("ready_by"):
         constraints["ready_by"] = params["ready_by"]
@@ -298,12 +495,22 @@ def build_timeline(state: SourdoughState) -> dict:
     timeline = calculate_timeline(steps, start_time=start_time, constraints=constraints)
 
     # Ingredient baseline — only used for country_loaf (hardcoded path)
+    # Priority: user param > RAG-derived > bread config default
+    if "salt_pct" in params:
+        resolved_salt_pct = safe_float(
+            params["salt_pct"], bread_config["default_salt_pct"]
+        )
+    elif _rag_salt_pct is not None:
+        resolved_salt_pct = _rag_salt_pct
+    else:
+        resolved_salt_pct = bread_config["default_salt_pct"]
+
     recipe = compute_recipe(
         product_type,
         flour_g,
         hydration_pct=hydration,
         starter_pct=starter_pct,
-        salt_pct=safe_float(params.get("salt_pct"), bread_config["default_salt_pct"]),
+        salt_pct=resolved_salt_pct,
     )
 
     logger.info(
@@ -320,7 +527,7 @@ def build_timeline(state: SourdoughState) -> dict:
         "bulk_fermentation_hours": bulk_hours,
         "temperature_c": temp_c,
         "hydration": hydration,
-        "recipe": recipe,                          # baker's % baseline (country_loaf only)
+        "recipe": recipe,  # baker's % baseline (country_loaf only)
         "extracted_ingredients": extracted_ingredients,  # KB-extracted ingredients (custom products)
         "custom_product": custom_product,
     }
@@ -339,11 +546,13 @@ def build_timeline(state: SourdoughState) -> dict:
                     "ready_by": ready_dt.strftime("%Y-%m-%d at %H:%M"),
                     "actual_finish": actual_finish.strftime("%Y-%m-%d at %H:%M"),
                     "total_hours": round(total_minutes / 60, 1),
-                    "available_hours": round((ready_dt - start_time).total_seconds() / 3600, 1),
+                    "available_hours": round(
+                        (ready_dt - start_time).total_seconds() / 3600, 1
+                    ),
                 }
                 logger.warning(
                     f"[Timeline] Both constraints infeasible: starts {start_time.strftime('%H:%M')}, "
-                    f"needs {round(total_minutes/60, 1)}h but window closes {ready_dt.strftime('%H:%M')}"
+                    f"needs {round(total_minutes / 60, 1)}h but window closes {ready_dt.strftime('%H:%M')}"
                 )
         except Exception as e:
             logger.warning(f"[Timeline] Both-constraints check failed: {e}")
@@ -377,12 +586,16 @@ def build_timeline(state: SourdoughState) -> dict:
 # Plan generator
 # ---------------------------------------------------------------------------
 
+
 def generate_bake_plan(state: SourdoughState) -> dict:
     """Generate a natural-language bake plan from the timeline."""
     plan_data = state.get("bake_plan_data", {})
 
     # --- Infeasibility: both start_time and ready_by given but window too short ---
-    if plan_data.get("infeasible") and plan_data.get("infeasible_reason") == "both_constraints":
+    if (
+        plan_data.get("infeasible")
+        and plan_data.get("infeasible_reason") == "both_constraints"
+    ):
         d = plan_data["infeasible_details"]
         answer = (
             f"**That window doesn't work** — your bake needs **{d['total_hours']} hours** but you've "
@@ -396,9 +609,19 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             f"if it's still achievable.\n\n"
             f"Which would you prefer?"
         )
-        logger.info(f"[BakePlan] Both-constraints infeasible: {d['available_hours']}h available, {d['total_hours']}h needed")
-        return {"response": answer, "steps": [{"module": "bake_plan_infeasible",
-                                                "prompt": state["user_query"], "response": answer}]}
+        logger.info(
+            f"[BakePlan] Both-constraints infeasible: {d['available_hours']}h available, {d['total_hours']}h needed"
+        )
+        return {
+            "response": answer,
+            "steps": [
+                {
+                    "module": "bake_plan_infeasible",
+                    "prompt": state["user_query"],
+                    "response": answer,
+                }
+            ],
+        }
 
     # --- Infeasibility: ready_by too soon (start would be in the past) ---
     if plan_data.get("infeasible"):
@@ -414,9 +637,19 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             f"- **Pick a later deadline** — tell me a new ready-by time and I'll build a fresh plan.\n\n"
             f"Would you like me to plan for **{d['earliest_finish']}** or a different time?"
         )
-        logger.info(f"[BakePlan] Infeasibility notice (start was {d['required_start']})")
-        return {"response": answer, "steps": [{"module": "bake_plan_infeasible",
-                                                "prompt": state["user_query"], "response": answer}]}
+        logger.info(
+            f"[BakePlan] Infeasibility notice (start was {d['required_start']})"
+        )
+        return {
+            "response": answer,
+            "steps": [
+                {
+                    "module": "bake_plan_infeasible",
+                    "prompt": state["user_query"],
+                    "response": answer,
+                }
+            ],
+        }
 
     timeline_source = plan_data.get("timeline_source", "hardcoded")
     product_name = plan_data.get("product_display_name", "Sourdough")
@@ -432,10 +665,18 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             f"results depend on what's in the knowledge base.\n\n"
             f"Would you like a **Country Loaf** plan, or try another sourdough bread?"
         )
-        logger.info(f"[BakePlan] '{product_name}' — {timeline_source}, insufficient KB data")
+        logger.info(
+            f"[BakePlan] '{product_name}' — {timeline_source}, insufficient KB data"
+        )
         return {
             "response": answer,
-            "steps": [{"module": "bake_plan_unsupported", "prompt": state["user_query"], "response": answer}],
+            "steps": [
+                {
+                    "module": "bake_plan_unsupported",
+                    "prompt": state["user_query"],
+                    "response": answer,
+                }
+            ],
             "bake_plan_data": {},
         }
 
@@ -446,8 +687,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
     # Context docs for tips / sensory cues
     all_docs = state.get("retrieved_docs", [])
     context = "\n\n".join(
-        f"[{doc.get('source', '?')}]: {doc.get('text', '')}"
-        for doc in all_docs[:5]
+        f"[{doc.get('source', '?')}]: {doc.get('text', '')}" for doc in all_docs[:5]
     )
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
@@ -466,8 +706,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
 
         if extracted_ingredients:
             ingredient_rows = "\n".join(
-                f"| {ing['name']} | {ing['amount']} |"
-                for ing in extracted_ingredients
+                f"| {ing['name']} | {ing['amount']} |" for ing in extracted_ingredients
             )
             ingredient_block = (
                 f"| Ingredient | Amount (× {num_units} unit(s)) |\n"
@@ -475,14 +714,16 @@ def generate_bake_plan(state: SourdoughState) -> dict:
                 f"{ingredient_rows}"
             )
         else:
-            ingredient_block = "_Ingredient quantities not extracted — see source documents._"
+            ingredient_block = (
+                "_Ingredient quantities not extracted — see source documents._"
+            )
 
         user_prompt = f"""Context from knowledge base (recipe source):
 {context}
 
 Product: {product_name}
 Number of units: {num_units}
-Kitchen temperature: {plan_data.get('temperature_c', '?')}°C
+Kitchen temperature: {plan_data.get("temperature_c", "?")}°C
 
 ## Ingredients (extracted from the recipe, scaled to {num_units} unit(s)):
 {ingredient_block}
@@ -490,7 +731,7 @@ Kitchen temperature: {plan_data.get('temperature_c', '?')}°C
 ## Baking timeline (steps from the recipe, timestamps computed):
 {json.dumps(timeline, indent=2)}
 
-User request: {state['user_query']}
+User request: {state["user_query"]}
 
 Present a detailed, friendly bake plan using the ingredients and timeline above exactly as given.
 Use the context documents for sensory cues, temperatures, and tips — cite the source for each tip.
@@ -517,9 +758,9 @@ Do NOT substitute or invent ingredient quantities. Do NOT add country-loaf steps
 {context}
 
 Product: {product_name}
-Number of loaves: {plan_data.get('num_loaves', 1)}
-Kitchen temperature: {plan_data.get('temperature_c', '?')}°C
-Bulk fermentation: {plan_data.get('bulk_fermentation_hours', '?')} hours
+Number of loaves: {plan_data.get("num_loaves", 1)}
+Kitchen temperature: {plan_data.get("temperature_c", "?")}°C
+Bulk fermentation: {plan_data.get("bulk_fermentation_hours", "?")} hours
 
 ## Ingredient weights (computed from baker's percentages):
 {recipe_block}
@@ -527,13 +768,15 @@ Bulk fermentation: {plan_data.get('bulk_fermentation_hours', '?')} hours
 ## Baking timeline (computed):
 {json.dumps(timeline, indent=2)}
 
-User request: {state['user_query']}
+User request: {state["user_query"]}
 
 Create a detailed, friendly bake plan with ## Ingredients, ## Timeline, ## Tips, ## Sources:"""
 
     messages.append(HumanMessage(content=user_prompt))
 
-    logger.info(f"[BakePlan] Generating plan for: {state['user_query']} (source={timeline_source})")
+    logger.info(
+        f"[BakePlan] Generating plan for: {state['user_query']} (source={timeline_source})"
+    )
     response = llm.invoke(messages)
     answer = response.content.strip()
 
@@ -548,6 +791,7 @@ Create a detailed, friendly bake plan with ## Ingredients, ## Timeline, ## Tips,
 # ---------------------------------------------------------------------------
 # Session store
 # ---------------------------------------------------------------------------
+
 
 def store_bake_session(state: SourdoughState) -> dict:
     """Save the bake plan to Supabase for polling notifications."""
