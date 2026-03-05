@@ -467,6 +467,30 @@ def build_timeline(state: SourdoughState) -> dict:
                     )
                 else:
                     _rag_salt_pct = None
+
+                # Annotate each extracted ingredient with its baker's percentage so
+                # the presentation layer can render a proper three-column table.
+                # Only flour, water, starter, and salt get a numeric %; everything
+                # else (olive oil, toppings, seeds, etc.) gets "-".
+                _flour_total_rag = sum(
+                    (_parse_grams(ing["amount"]) or 0.0)
+                    for ing in extracted_ingredients
+                    if _classify_ingredient(ing["name"]) == "flour"
+                )
+                if _flour_total_rag > 0:
+                    for ing in extracted_ingredients:
+                        category = _classify_ingredient(ing["name"])
+                        if category == "flour":
+                            ing["baker_pct"] = "100%"
+                        elif category in ("water", "starter", "salt"):
+                            grams = _parse_grams(ing["amount"])
+                            if grams is not None:
+                                pct = round(grams / _flour_total_rag * 100, 1)
+                                ing["baker_pct"] = f"{pct}%"
+                            else:
+                                ing["baker_pct"] = "-"
+                        else:
+                            ing["baker_pct"] = "-"
             else:
                 _rag_salt_pct = None
 
@@ -706,11 +730,12 @@ def generate_bake_plan(state: SourdoughState) -> dict:
 
         if extracted_ingredients:
             ingredient_rows = "\n".join(
-                f"| {ing['name']} | {ing['amount']} |" for ing in extracted_ingredients
+                f"| {ing['name']} | {ing['amount']} | {ing.get('baker_pct', '-')} |"
+                for ing in extracted_ingredients
             )
             ingredient_block = (
-                f"| Ingredient | Amount (× {num_units} unit(s)) |\n"
-                f"|---|---|\n"
+                f"| Ingredient | Amount (× {num_units} unit(s)) | Baker's % |\n"
+                f"|---|---|---|\n"
                 f"{ingredient_rows}"
             )
         else:
@@ -735,7 +760,8 @@ User request: {state["user_query"]}
 
 Present a detailed, friendly bake plan using the ingredients and timeline above exactly as given.
 Use the context documents for sensory cues, temperatures, and tips — cite the source for each tip.
-Do NOT substitute or invent ingredient quantities. Do NOT add country-loaf steps (no Dutch oven, no bannetons, no scoring) unless the recipe above explicitly calls for them."""
+Do NOT substitute or invent ingredient quantities. Do NOT add country-loaf steps (no Dutch oven, no bannetons, no scoring) unless the recipe above explicitly calls for them.
+When presenting the ingredients table, preserve all three columns (Ingredient, Amount, Baker's %) exactly as given above."""
 
     else:
         # Country loaf — computed recipe and hardcoded timeline
@@ -802,7 +828,8 @@ def store_bake_session(state: SourdoughState) -> dict:
 
     if plan_data.get("infeasible"):
         logger.info("[StoreBakeSession] Skipping save — plan is infeasible")
-        return {}
+    return {}
+    # end of module
 
     if plan_data and session_id:
         try:
