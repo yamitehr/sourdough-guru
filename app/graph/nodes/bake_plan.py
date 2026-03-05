@@ -241,16 +241,22 @@ _WATER_KEYWORDS = {"water", "liquid", "milk", "buttermilk"}
 
 
 def _classify_ingredient(name: str) -> str:
-    """Map a freeform ingredient name to one of: flour | starter | salt | water | other."""
+    """Map a freeform ingredient name to one of: flour | starter | salt | water | other.
+
+    Precedence: salt > flour > water > starter > other.
+    Flour and water are checked before starter so names like
+    'bread flour (... levain ...)' or 'water (... levain water ...)'
+    are not wrongly classified as starter due to the word 'levain' in parentheses.
+    """
     n = name.lower().strip()
     if any(k in n for k in _SALT_KEYWORDS):
         return "salt"
-    if any(k in n for k in _STARTER_KEYWORDS):
-        return "starter"
     if any(k in n for k in _FLOUR_KEYWORDS):
         return "flour"
     if any(k in n for k in _WATER_KEYWORDS):
         return "water"
+    if any(k in n for k in _STARTER_KEYWORDS):
+        return "starter"
     return "other"
 
 
@@ -264,8 +270,10 @@ def _parse_grams(amount_str: str) -> float | None:
         return None
     s = amount_str.lower().strip()
 
-    # Reject obvious volume units that cannot be reliably converted to grams
-    if re.search(r"(tsp|tbsp|cup|cups|ml|l\b|oz|lb|lbs|litre|liter)", s):
+    # Reject obvious volume units that cannot be reliably converted to grams.
+    # Use word-boundary anchors carefully: \bl\b matches standalone "l" (litre)
+    # but must NOT match "l" inside words like "total", "levain", "flour" etc.
+    if re.search(r"(tsp|tbsp|cup|cups|ml|\bl\b|oz|\blb\b|\blbs\b|litre|liter)", s):
         return None
 
     # Handle kg → g
