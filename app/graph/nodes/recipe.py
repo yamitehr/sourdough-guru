@@ -9,6 +9,8 @@ from app.graph.state import SourdoughState, HISTORY_WINDOW
 from app.graph.nodes.llm_utils import get_llm
 from app.graph.nodes.param_utils import safe_float
 from app.tools.baking_math import (
+    BREAD_TYPES,
+    normalize_product_type,
     calculate_bakers_percentages,
     calculate_hydration,
 )
@@ -51,14 +53,128 @@ def _format_context(docs: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _extract_pcts_from_docs(
+    docs: list[dict],
+    product_name: str,
+) -> dict[str, float | None]:
+    """Ask the LLM to extract starter_pct and salt_pct from retrieved recipe documents.
+
+    Returns {"starter_pct": float | None, "salt_pct": float | None}.
+    Returns None values on any failure so the caller can fall back to defaults silently.
+    """
+    if not docs:
+        return {"starter_pct": None, "salt_pct": None}
+
+    llm = get_llm()
+    context = "\n\n".join(
+        f"[{d.get('source', '?')}]: {d.get('text', '')}" for d in docs
+    )
+
+    prompt = f"""You are a baking expert reading sourdough recipe source documents.
+
+Product: {product_name}
+
+Source documents:
+{context}
+
+---
+Extract ONLY the following from the documents, as baker's percentages (relative to total flour weight):
+- starter_pct: the sourdough starter / levain percentage (e.g. 20 means 20% of flour weight)
+- salt_pct: the salt percentage (e.g. 2 means 2% of flour weight)
+
+Rules:
+- If a percentage is explicitly stated in the text (e.g. "20% starter", "2% salt"), use it directly.
+- If only gram weights are given for both salt/starter AND flour, compute the percentage yourself.
+- If you cannot determine a value with confidence, set it to null.
+- Do NOT guess or hallucinate. Return null if unsure.
+
+Return ONLY valid JSON, no markdown fences, no extra text:
+{{"starter_pct": <number or null>, "salt_pct": <number or null>}}"""
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(
+                    content="You are a baking expert. Return only valid JSON."
+                ),
+                HumanMessage(content=prompt),
+            ]
+        )
+        raw = response.content.strip()
+
+        # Strip accidental markdown fences
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {"starter_pct": None, "salt_pct": None}
+
+        def _to_float_or_none(val) -> float | None:
+            if val is None:
+                return None
+            try:
+                f = float(val)
+                return f if f > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        result = {
+            "starter_pct": _to_float_or_none(data.get("starter_pct")),
+            "salt_pct": _to_float_or_none(data.get("salt_pct")),
+        }
+        logger.info(
+            f"[RecipePcts] RAG-extracted for '{product_name}': "
+            f"starter_pct={result['starter_pct']}, salt_pct={result['salt_pct']}"
+        )
+        return result
+
+    except Exception as e:
+        logger.info(f"[RecipePcts] Could not extract pcts from docs: {e}")
+        return {"starter_pct": None, "salt_pct": None}
+
+
 def compute_baking_math(state: SourdoughState) -> dict:
     """Run deterministic baking math calculations."""
     params = state.get("intent_params", {})
 
+    # Resolve bread type config for defaults (mirrors bake_plan.py approach)
+    raw_product = params.get("target_product", "")
+    product_type = normalize_product_type(raw_product or "") or "country_loaf"
+    bread_config = BREAD_TYPES.get(product_type, BREAD_TYPES["country_loaf"])
+
     flour_g = safe_float(params.get("flour_g"), 1000)
-    hydration = safe_float(params.get("hydration"), 75)
-    starter_pct = safe_float(params.get("starter_pct"), 20)
-    salt_pct = safe_float(params.get("salt_pct"), 2)
+    hydration = safe_float(params.get("hydration"), bread_config["default_hydration"])
+
+    # For starter_pct and salt_pct: priority is
+    #   1. User-supplied value (already in intent_params)
+    #   2. RAG-extracted value from retrieved documents
+    #   3. Bread-type config default
+    retrieved_docs = state.get("retrieved_docs", [])
+    rag_pcts: dict[str, float | None] = {"starter_pct": None, "salt_pct": None}
+    needs_rag = "starter_pct" not in params or "salt_pct" not in params
+    if needs_rag and retrieved_docs:
+        rag_pcts = _extract_pcts_from_docs(retrieved_docs, raw_product or product_type)
+
+    if "starter_pct" in params:
+        starter_pct = safe_float(
+            params["starter_pct"], bread_config["default_starter_pct"]
+        )
+    elif rag_pcts["starter_pct"] is not None:
+        starter_pct = rag_pcts["starter_pct"]
+    else:
+        starter_pct = bread_config["default_starter_pct"]
+
+    if "salt_pct" in params:
+        salt_pct = safe_float(params["salt_pct"], bread_config["default_salt_pct"])
+    elif rag_pcts["salt_pct"] is not None:
+        salt_pct = rag_pcts["salt_pct"]
+    else:
+        salt_pct = bread_config["default_salt_pct"]
 
     water_g = flour_g * (hydration / 100)
     starter_g = flour_g * (starter_pct / 100)
@@ -113,7 +229,7 @@ def generate_recipe(state: SourdoughState) -> dict:
 Baking math results:
 {json.dumps(math, indent=2)}
 
-User request: {state['user_query']}
+User request: {state["user_query"]}
 
 Create a detailed sourdough recipe:"""
 

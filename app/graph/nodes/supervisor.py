@@ -29,6 +29,8 @@ Intents:
 Parameter rules:
 - Extract numeric values as plain numbers (e.g. 75 not "75%").
 - temperature_c must ALWAYS be in Celsius. If the user provides Fahrenheit (e.g., "72°F", "72 degrees"), convert to Celsius: (F-32)×5/9. Example: "72°F" → temperature_c: 22.
+- Extract starter_pct whenever the user mentions a starter, levain, or preferment percentage (e.g. "15% starter", "20% levain", "use 25% preferment" → starter_pct: 25).
+- Extract salt_pct whenever the user mentions a salt percentage (e.g. "2.5% salt", "3 percent salt", "salt at 1.8%" → salt_pct: 2.5 / 3 / 1.8).
 - For time parameters: ALWAYS convert to ISO 8601 datetime format (YYYY-MM-DDTHH:MM:SS). Today is {today}. Tomorrow is {tomorrow}.
 - Use "ready_by" when the user specifies when they want the bake FINISHED (e.g., "ready by 7am", "I need them at 6am", "done by morning").
 - Use "start_time" when the user specifies when they want to START baking (e.g., "I'll start at 9am", "start now", "beginning at 8am").
@@ -58,12 +60,13 @@ class IntentParams(BaseModel):
 
 class IntentClassification(BaseModel):
     """Classify user intent and extract baking parameters."""
+
     intent: Literal["factual_qa", "recipe", "bake_plan", "general"] = Field(
         description="The classified intent of the user's message"
     )
     intent_params: IntentParams = Field(
         default_factory=IntentParams,
-        description="Extracted parameters relevant to the intent"
+        description="Extracted parameters relevant to the intent",
     )
 
 
@@ -80,8 +83,12 @@ def supervisor(state: SourdoughState) -> dict:
     in_2h = (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
     in_3h = (now + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        today=today, tomorrow=tomorrow, now=now_str,
-        in_1h=in_1h, in_2h=in_2h, in_3h=in_3h,
+        today=today,
+        tomorrow=tomorrow,
+        now=now_str,
+        in_1h=in_1h,
+        in_2h=in_2h,
+        in_3h=in_3h,
     )
     messages = [SystemMessage(content=system_prompt)]
 
@@ -103,11 +110,14 @@ def supervisor(state: SourdoughState) -> dict:
             result: IntentClassification = structured_llm.invoke(messages)
         intent = result.intent
         intent_params = {
-            k: v for k, v in result.intent_params.model_dump(exclude_none=True).items()
+            k: v
+            for k, v in result.intent_params.model_dump(exclude_none=True).items()
             if v != ""
         }
     except Exception as e:
-        logger.warning(f"[Supervisor] Structured output failed: {e}, falling back to general")
+        logger.warning(
+            f"[Supervisor] Structured output failed: {e}, falling back to general"
+        )
         intent = "general"
         intent_params = {}
 
@@ -117,24 +127,36 @@ def supervisor(state: SourdoughState) -> dict:
     prev_intent = state.get("intent", "")
     prev_params = state.get("intent_params", {})
     if intent == prev_intent and prev_params:
-        # When the product is changing, only carry over universal params
-        # (num_loaves, temperature_c, timing). Product-specific params like
-        # hydration, starter_pct, flour_g etc. should reset to the new type's defaults.
+        # When the product is changing, carry over universal params:
+        # num_loaves, temperature_c, timing, and user-specified salt/starter percentages.
+        # Product-specific params like hydration and flour_g reset to the new type's defaults.
         prev_product = prev_params.get("target_product", "")
         new_product = intent_params.get("target_product", "")
         product_changing = (
-            new_product and prev_product
-            and new_product.lower() != prev_product.lower()
+            new_product and prev_product and new_product.lower() != prev_product.lower()
         ) or (not new_product and prev_product)  # user wants "something else"
 
         if product_changing:
-            _UNIVERSAL_PARAMS = {"num_loaves", "temperature_c", "start_time", "ready_by"}
-            carry_over = {k: v for k, v in prev_params.items() if k in _UNIVERSAL_PARAMS}
+            _UNIVERSAL_PARAMS = {
+                "num_loaves",
+                "temperature_c",
+                "start_time",
+                "ready_by",
+                "salt_pct",
+                "starter_pct",
+            }
+            carry_over = {
+                k: v for k, v in prev_params.items() if k in _UNIVERSAL_PARAMS
+            }
             merged = {**carry_over, **intent_params}
-            logger.info(f"[Supervisor] Product change — carrying over only universal params: {carry_over}")
+            logger.info(
+                f"[Supervisor] Product change — carrying over only universal params: {carry_over}"
+            )
         else:
             merged = {**prev_params, **intent_params}
-            logger.info(f"[Supervisor] Merged with prev params: {prev_params} + {intent_params} = {merged}")
+            logger.info(
+                f"[Supervisor] Merged with prev params: {prev_params} + {intent_params} = {merged}"
+            )
         intent_params = merged
 
     logger.info(f"[Supervisor] Intent: {intent} | Params: {intent_params}")
