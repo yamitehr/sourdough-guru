@@ -132,9 +132,13 @@ def supervisor(state: SourdoughState) -> dict:
         # Product-specific params like hydration and flour_g reset to the new type's defaults.
         prev_product = prev_params.get("target_product", "")
         new_product = intent_params.get("target_product", "")
+        # Product is changing only when the user explicitly names a DIFFERENT product.
+        # If new_product is empty it means the LLM didn't extract one (e.g. a follow-up
+        # like "yes" or "start now") — that is NOT a product switch; the old product
+        # should be preserved via the normal merge path.
         product_changing = (
             new_product and prev_product and new_product.lower() != prev_product.lower()
-        ) or (not new_product and prev_product)  # user wants "something else"
+        )
 
         if product_changing:
             _UNIVERSAL_PARAMS = {

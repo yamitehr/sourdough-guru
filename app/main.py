@@ -19,8 +19,17 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.models import ExecuteRequest, ExecuteResponse, StepTrace
 from app.graph.workflow import sourdough_graph
+from app.db_init import ensure_tables
 
 app = FastAPI(title="Sourdough Guru", version="1.0.0")
+
+
+@app.on_event("startup")
+def startup():
+    try:
+        ensure_tables()
+    except Exception as e:
+        logger.warning(f"[Startup] Could not ensure tables: {e}")
 
 # CORS for frontend
 app.add_middleware(

@@ -432,6 +432,13 @@ def build_timeline(state: SourdoughState) -> dict:
             retrieved_docs, product_display_name, bulk_hours, num_loaves
         )
 
+        # Log LLM call as a step trace
+        extraction_step = {
+            "module": "build_timeline",
+            "prompt": f"Extract recipe for '{product_display_name}' from {len(retrieved_docs)} KB docs",
+            "response": json.dumps(extracted) if extracted else "Extraction failed (None)",
+        }
+
         if extracted is None:
             # LLM/parse failure — fall back gracefully, don't crash
             steps = default_bread_steps(bulk_hours, num_loaves)
@@ -526,23 +533,25 @@ def build_timeline(state: SourdoughState) -> dict:
     timeline = calculate_timeline(steps, start_time=start_time, constraints=constraints)
 
     # Ingredient baseline — only used for country_loaf (hardcoded path)
-    # Priority: user param > RAG-derived > bread config default
-    if "salt_pct" in params:
-        resolved_salt_pct = safe_float(
-            params["salt_pct"], bread_config["default_salt_pct"]
-        )
-    elif _rag_salt_pct is not None:
-        resolved_salt_pct = _rag_salt_pct
-    else:
-        resolved_salt_pct = bread_config["default_salt_pct"]
+    # Custom products use extracted_ingredients from KB instead.
+    recipe = {}
+    if not custom_product:
+        if "salt_pct" in params:
+            resolved_salt_pct = safe_float(
+                params["salt_pct"], bread_config["default_salt_pct"]
+            )
+        elif _rag_salt_pct is not None:
+            resolved_salt_pct = _rag_salt_pct
+        else:
+            resolved_salt_pct = bread_config["default_salt_pct"]
 
-    recipe = compute_recipe(
-        product_type,
-        flour_g,
-        hydration_pct=hydration,
-        starter_pct=starter_pct,
-        salt_pct=resolved_salt_pct,
-    )
+        recipe = compute_recipe(
+            product_type,
+            flour_g,
+            hydration_pct=hydration,
+            starter_pct=starter_pct,
+            salt_pct=resolved_salt_pct,
+        )
 
     logger.info(
         f"[Timeline] {len(timeline)} steps, product={product_type}, "
@@ -610,7 +619,11 @@ def build_timeline(state: SourdoughState) -> dict:
                 f"but it's already {now.strftime('%H:%M')}"
             )
 
-    return {"bake_plan_data": bake_plan_data}
+    result: dict = {"bake_plan_data": bake_plan_data}
+    # Include step trace for the recipe extraction LLM call (custom products only)
+    if custom_product and retrieved_docs:
+        result["steps"] = [extraction_step]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -835,8 +848,7 @@ def store_bake_session(state: SourdoughState) -> dict:
 
     if plan_data.get("infeasible"):
         logger.info("[StoreBakeSession] Skipping save — plan is infeasible")
-    return {}
-    # end of module
+        return {}
 
     if plan_data and session_id:
         try:

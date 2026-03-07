@@ -19,21 +19,22 @@ logger = logging.getLogger("sourdough.recipe")
 
 SYSTEM_PROMPT = """You are the Sourdough Guru, an expert recipe creator for sourdough baking.
 
-CRITICAL: Build the recipe ONLY from the provided context documents and the baking math results. Do NOT use your general training knowledge. Every technique, temperature, time, tip, and ingredient amount must come from the provided sources.
+CRITICAL: Build the recipe primarily from the provided context documents and the baking math results. Prefer source-backed information and always cite it. When the sources cover a topic partially (e.g., they give a mixing method but not an oven temperature), fill in standard sourdough practice for the missing detail and note it briefly inline (e.g., "Bake at **230°C** (standard for this style)") — do NOT create a separate disclaimer section.
 
 Your recipe MUST include:
 1. Recipe name and brief description
 2. Ingredients — use the baking math results provided (gram weights AND baker's percentages)
 3. Method — step-by-step instructions drawn from the source techniques
 4. Fermentation stages — times and sensory cues as described in the sources
-5. Baking instructions — temperatures, steam, timing from the sources
+5. Baking instructions — temperatures, steam, timing from the sources (supplement with standard practice if sources are silent)
 6. Tips — practical advice found in the sources
 7. Sources — list which books/papers each part of the recipe is based on
 
 Rules:
 - Use the baking math results for all ingredient quantities (do not recalculate)
 - Cite the source for techniques, temperatures, and times (e.g., "as described in *Tartine Bread*")
-- If the retrieved context doesn't have enough information for a specific aspect (e.g., missing ingredient amounts, missing technique), say so explicitly — do NOT fill in from general knowledge. Instead, tell the user what you do have and suggest a recipe that IS well-covered in your sources
+- When the sources lack a specific detail, use standard sourdough technique and mark it briefly inline — never leave a section empty or create "what I cannot provide" blocks
+- The recipe must always feel complete and actionable to the baker
 - The ingredient table must be clean: only Ingredient, Weight, and Baker's % columns — no source annotations inside the table
 
 Formatting:
@@ -156,9 +157,15 @@ def compute_baking_math(state: SourdoughState) -> dict:
     #   3. Bread-type config default
     retrieved_docs = state.get("retrieved_docs", [])
     rag_pcts: dict[str, float | None] = {"starter_pct": None, "salt_pct": None}
+    rag_pct_step = None
     needs_rag = "starter_pct" not in params or "salt_pct" not in params
     if needs_rag and retrieved_docs:
         rag_pcts = _extract_pcts_from_docs(retrieved_docs, raw_product or product_type)
+        rag_pct_step = {
+            "module": "recipe_pct_extraction",
+            "prompt": f"Extract starter_pct and salt_pct for '{raw_product or product_type}' from {len(retrieved_docs)} docs",
+            "response": json.dumps(rag_pcts),
+        }
 
     if "starter_pct" in params:
         starter_pct = safe_float(
@@ -203,7 +210,10 @@ def compute_baking_math(state: SourdoughState) -> dict:
 
     logger.info(f"[BakingMath] hydration={actual_hydration}% flour={flour_g}g")
 
-    return {"math_results": math_results}
+    result: dict = {"math_results": math_results}
+    if rag_pct_step:
+        result["steps"] = [rag_pct_step]
+    return result
 
 
 def generate_recipe(state: SourdoughState) -> dict:

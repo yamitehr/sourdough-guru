@@ -20,3 +20,5 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: DATABASE_URL
+        sync: false

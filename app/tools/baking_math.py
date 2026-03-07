@@ -66,7 +66,11 @@ def _parse_time(time_str: str) -> datetime:
     """Parse a time string into a datetime, handling both ISO and casual formats."""
     # Try ISO format first
     try:
-        return datetime.fromisoformat(time_str)
+        dt = datetime.fromisoformat(time_str)
+        # Strip timezone to keep all datetimes naive (consistent with the rest of the codebase)
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
     except ValueError:
         pass
 

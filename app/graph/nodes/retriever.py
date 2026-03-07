@@ -57,14 +57,19 @@ def _build_search_query(state: SourdoughState) -> str:
 
     if intent in ("bake_plan", "recipe") and product:
         # Strip trailing "bread"/"loaf" from product to avoid duplication in query
-        # e.g. "rye bread" → "sourdough rye bread baking technique..."
-        #      "focaccia"  → "sourdough focaccia bread baking technique..."
         product_clean = product.strip()
         for suffix in (" bread", " loaf", " loaves"):
             if product_clean.lower().endswith(suffix):
                 product_clean = product_clean[: -len(suffix)].strip()
                 break
-        return f"sourdough {product_clean} bread baking technique fermentation shaping"
+        # Combine product-focused keywords with user's original query so
+        # user-specific details (e.g. "no-knead", "high-hydration") are not lost
+        base = f"sourdough {product_clean} bread recipe baking technique"
+        user_query = state["user_query"]
+        # Avoid duplicating the product name if it's already in the user query
+        if product_clean.lower() in user_query.lower():
+            return f"{user_query} {base}"
+        return f"{base} {user_query}"
 
     return state["user_query"]
 
@@ -73,6 +78,13 @@ def retrieve_context(state: SourdoughState) -> dict:
     """Embed the user query and retrieve top-k relevant chunks from Pinecone."""
     raw_query = _build_search_query(state)
     query = _translate_to_english(raw_query)
+    translation_step = None
+    if query != raw_query:
+        translation_step = {
+            "module": "retriever_translation",
+            "prompt": raw_query,
+            "response": query,
+        }
 
     logger.info(f"[Retriever] Querying Pinecone for: {query[:100]}")
 
@@ -102,7 +114,12 @@ def retrieve_context(state: SourdoughState) -> dict:
         "response": f"Retrieved {len(filtered_docs)} documents (dropped {len(docs) - len(filtered_docs)} below score {MIN_RELEVANCE_SCORE}){rewritten_note}{translated_note}",
     }
 
+    steps_out = []
+    if translation_step:
+        steps_out.append(translation_step)
+    steps_out.append(step)
+
     return {
         "retrieved_docs": filtered_docs,
-        "steps": [step],
+        "steps": steps_out,
     }
