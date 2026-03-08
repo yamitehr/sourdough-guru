@@ -380,6 +380,10 @@
         const examples = document.getElementById('examples');
         const sessionList = document.getElementById('sessionList');
 
+        function welcomeText() {
+            return 'Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?';
+        }
+
         function handleKey(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -512,13 +516,49 @@
             sessionId = crypto.randomUUID();
             localStorage.setItem('sg_session', sessionId);
             chat.innerHTML = '';
-            addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
+            addMessage(welcomeText(), 'bot');
             examples.style.display = 'flex';
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
             banner.classList.remove('active');
             input.value = '';
             input.focus();
             loadSessions(); // Refresh sidebar to clear active highlight
+        }
+
+        async function loadSessionMessages(sid) {
+            chat.innerHTML = '';
+            examples.style.display = 'none';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/sessions/${sid}/messages`);
+                const messages = await res.json();
+
+                if (!messages || messages.length === 0) {
+                    addMessage(welcomeText(), 'bot');
+                    examples.style.display = 'flex';
+                } else {
+                    messages.forEach(m => {
+                        addMessage(m.content, m.role === 'user' ? 'user' : 'bot');
+                    });
+                }
+            } catch (e) {
+                addMessage(welcomeText(), 'bot');
+                examples.style.display = 'flex';
+            }
+        }
+
+        async function resumeBakePollingIfActive(sid) {
+            try {
+                const res = await fetch(`${API_BASE}/api/bake_session/${sid}/status`);
+                const status = await res.json();
+                if (status && status.active) {
+                    startBakePolling(sid);
+                } else {
+                    banner.classList.remove('active');
+                }
+            } catch (e) {
+                banner.classList.remove('active');
+            }
         }
 
         async function loadSessions() {
@@ -586,26 +626,8 @@
             sessionId = newSessionId;
             localStorage.setItem('sg_session', sessionId);
 
-            // Load messages for this session
-            chat.innerHTML = '';
-            examples.style.display = 'none';
-
-            try {
-                const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/messages`);
-                const messages = await res.json();
-
-                if (messages.length === 0) {
-                    addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
-                    examples.style.display = 'flex';
-                } else {
-                    messages.forEach(m => {
-                        addMessage(m.content, m.role === 'user' ? 'user' : 'bot');
-                    });
-                }
-            } catch (e) {
-                addMessage('Hello! I\'m the Sourdough Guru. I can help you with sourdough questions, recipes, and bake-day planning. What would you like to know?', 'bot');
-                examples.style.display = 'flex';
-            }
+            await loadSessionMessages(sessionId);
+            await resumeBakePollingIfActive(sessionId);
 
             // Update active highlight in sidebar
             document.querySelectorAll('.session-item').forEach(el => {
@@ -660,8 +682,18 @@
         }
 
         // Init
-        loadSessions();
-        input.focus();
+        async function initializeApp() {
+            await loadSessions();
+            await loadSessionMessages(sessionId);
+            await resumeBakePollingIfActive(sessionId);
+
+            document.querySelectorAll('.session-item').forEach(el => {
+                el.classList.toggle('active', el.dataset.sid === sessionId);
+            });
+            input.focus();
+        }
+
+        initializeApp();
     </script>
 </body>
 </html>
