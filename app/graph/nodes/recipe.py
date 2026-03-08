@@ -162,7 +162,7 @@ def compute_baking_math(state: SourdoughState) -> dict:
     if needs_rag and retrieved_docs:
         rag_pcts = _extract_pcts_from_docs(retrieved_docs, raw_product or product_type)
         rag_pct_step = {
-            "module": "recipe_pct_extraction",
+            "module": "compute_baking_math (pct extraction)",
             "prompt": f"Extract starter_pct and salt_pct for '{raw_product or product_type}' from {len(retrieved_docs)} docs",
             "response": json.dumps(rag_pcts),
         }
@@ -254,7 +254,7 @@ Create a detailed sourdough recipe:"""
     logger.info(f"[Recipe] Response preview: {answer[:200]}")
 
     step = {
-        "module": "recipe",
+        "module": "generate_recipe",
         "prompt": user_prompt,
         "response": answer,
     }

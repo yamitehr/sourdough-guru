@@ -81,7 +81,7 @@ def retrieve_context(state: SourdoughState) -> dict:
     translation_step = None
     if query != raw_query:
         translation_step = {
-            "module": "retriever_translation",
+            "module": "retrieve_context (translation)",
             "prompt": raw_query,
             "response": query,
         }
@@ -109,7 +109,7 @@ def retrieve_context(state: SourdoughState) -> dict:
     translated_note = f" (translated from: {state['user_query'][:60]})" if query != raw_query else ""
     rewritten_note = f" (rewritten: {raw_query[:60]})" if raw_query != state["user_query"] else ""
     step = {
-        "module": "retriever",
+        "module": "retrieve_context",
         "prompt": query,
         "response": f"Retrieved {len(filtered_docs)} documents (dropped {len(docs) - len(filtered_docs)} below score {MIN_RELEVANCE_SCORE}){rewritten_note}{translated_note}",
     }

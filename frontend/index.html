@@ -490,7 +490,7 @@
 
                 if (data.status === 'ok') {
                     addMessage(data.response, 'bot', data.steps);
-                    const hasBakePlan = data.steps && data.steps.some(s => s.module === 'bake_plan');
+                    const hasBakePlan = data.steps && data.steps.some(s => s.module === 'generate_bake_plan');
                     if (hasBakePlan) startBakePolling(sessionId);
                 } else {
                     addMessage('Error: ' + (data.error || 'Unknown error'), 'bot');

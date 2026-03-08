@@ -75,7 +75,7 @@ Provide a thorough, grounded answer:"""
     logger.info(f"[FactualQA] Response preview: {answer[:200]}")
 
     step = {
-        "module": "factual_qa",
+        "module": "generate_qa_answer",
         "prompt": user_prompt,
         "response": answer,
     }

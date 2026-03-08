@@ -42,7 +42,7 @@ app.add_middleware(
 
 # Serve frontend static files
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
-ARCHITECTURE_PNG = Path(__file__).resolve().parent.parent / "architecture.png"
+ARCHITECTURE_PNG = Path(__file__).resolve().parent.parent / "diagram" / "architecture.png"
 
 
 # ---------- Endpoints ----------
@@ -85,12 +85,12 @@ def agent_info():
                         "response": "{\"needs_clarification\": false}"
                     },
                     {
-                        "module": "retriever",
+                        "module": "retrieve_context",
                         "prompt": "ideal hydration beginner sourdough loaf",
                         "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
                     },
                     {
-                        "module": "factual_qa",
+                        "module": "generate_qa_answer",
                         "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
                         "response": "For beginners, a hydration of 65–72% is ideal..."
                     }
@@ -111,12 +111,12 @@ def agent_info():
                         "response": "{\"needs_clarification\": false}"
                     },
                     {
-                        "module": "retriever",
+                        "module": "retrieve_context",
                         "prompt": "sourdough focaccia recipe 80% hydration",
                         "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
                     },
                     {
-                        "module": "recipe",
+                        "module": "generate_recipe",
                         "prompt": "Generate a full focaccia recipe with the computed quantities.",
                         "response": "**Sourdough Focaccia (80% Hydration)**..."
                     }

@@ -656,7 +656,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             "response": answer,
             "steps": [
                 {
-                    "module": "bake_plan_infeasible",
+                    "module": "generate_bake_plan (infeasible)",
                     "prompt": state["user_query"],
                     "response": answer,
                 }
@@ -684,7 +684,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             "response": answer,
             "steps": [
                 {
-                    "module": "bake_plan_infeasible",
+                    "module": "generate_bake_plan (infeasible)",
                     "prompt": state["user_query"],
                     "response": answer,
                 }
@@ -712,7 +712,7 @@ def generate_bake_plan(state: SourdoughState) -> dict:
             "response": answer,
             "steps": [
                 {
-                    "module": "bake_plan_unsupported",
+                    "module": "generate_bake_plan (unsupported)",
                     "prompt": state["user_query"],
                     "response": answer,
                 }
@@ -826,7 +826,7 @@ Create a detailed, friendly bake plan with ## Ingredients, ## Timeline, ## Tips,
     if not answer:
         logger.warning("[BakePlan] Empty answer!")
 
-    step = {"module": "bake_plan", "prompt": user_prompt, "response": answer}
+    step = {"module": "generate_bake_plan", "prompt": user_prompt, "response": answer}
     return {"response": answer, "steps": [step]}
 
 
