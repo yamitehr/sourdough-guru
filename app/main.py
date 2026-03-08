@@ -72,53 +72,48 @@ def agent_info():
         "prompt_examples": [
             {
                 "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
-                "full_response": "For beginners, a hydration of 65–72% is ideal. Lower hydration doughs are easier to handle and shape since the gluten network is tighter, giving you more control. As you get comfortable with fermentation and shaping, you can gradually increase hydration to develop a more open crumb. Start at 68% and adjust from there.",
+                "full_response": "## Short Answer\nStart at **68\u201370% hydration** with a quality bread flour. According to The Perfect Loaf, this gives you a dough that\u2019s forgiving and manageable while still producing a beautiful loaf.\n\n> \"I recommend starting around **68-70% hydration** with a quality bread flour.\" \u2014 theperfectloaf.com\n\n## Why That Range?\n- Bread doughs commonly fall in the **60\u201380%** range, but there is no single ideal \u2014 it depends on flour and the loaf you want.\n- Higher hydration produces a more tender crumb and open holes, but makes dough harder to handle.\n- Hydration alone doesn\u2019t guarantee an open crumb \u2014 fermentation, shaping, and baking matter too.\n\n## Practical Tips\n- Hold back some water on your first bake and add gradually during mixing.\n- Use medium- to high-protein bread flour (\u224811.5% protein) for higher hydrations.\n- Keep notes: record hydration, dough feel, temperature, and results.\n\n**Sources:** theperfectloaf.com: dough hydration; theperfectloaf.com: best sourdough recipe; trevorjaywilson.com: pioneer sourdough beginner recipe",
                 "steps": [
                     {
                         "module": "supervisor",
                         "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
-                        "response": "{\"intent\": \"factual_qa\", \"intent_params\": {}}"
-                    },
-                    {
-                        "module": "clarify",
-                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
-                        "response": "{\"needs_clarification\": false}"
+                        "response": "{\"intent\": \"factual_qa\", \"intent_params\": {\"target_product\": \"sourdough loaf\"}}"
                     },
                     {
                         "module": "retrieve_context",
-                        "prompt": "ideal hydration beginner sourdough loaf",
-                        "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
+                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
+                        "response": "Retrieved 10 documents (dropped 0 below score 0.3)"
                     },
                     {
                         "module": "generate_qa_answer",
-                        "prompt": "What is the ideal hydration for a beginner sourdough loaf?",
-                        "response": "For beginners, a hydration of 65–72% is ideal..."
+                        "prompt": "Context from knowledge base:\n[1] theperfectloaf.com: dough hydration ...\n[2] theperfectloaf.com: best sourdough recipe ...\n\nUser question: What is the ideal hydration for a beginner sourdough loaf?\n\nProvide a thorough, grounded answer:",
+                        "response": "## Short Answer\nStart at **68\u201370% hydration** with a quality bread flour..."
                     }
                 ]
             },
             {
                 "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
-                "full_response": "**Sourdough Focaccia (80% Hydration)**\n\nIngredients (for 1 pan, ~600g dough):\n- Bread flour: 333g (100%)\n- Water: 267g (80%)\n- Sourdough starter (100% hydration): 67g (20%)\n- Salt: 7g (2%)\n- Olive oil: 20g (6%)\n\nMethod:\n1. Mix flour + water, autolyse 30 min.\n2. Add starter + salt, fold every 30 min for 2 hrs.\n3. Bulk ferment 4–6 hrs at 24°C.\n4. Transfer to oiled pan, dimple, rest 1 hr.\n5. Bake at 230°C for 22–25 min until golden.",
+                "full_response": "## Sourdough Focaccia (80% Hydration)\n\nA high-hydration, airy focaccia made with a ripe sourdough starter.\n\n## Ingredients\n| Ingredient | Weight | Baker's % |\n|---|---:|---:|\n| Bread flour | **1000 g** | **100%** |\n| Water | **800 g** | **80%** |\n| Sourdough starter (100% hydration) | **190 g** | **19%** |\n| Salt | **18 g** | **1.8%** |\n\n## Method\n1. **Autolyse** \u2014 Mix flour and water, rest 30\u201360 min.\n2. **Add starter & salt** \u2014 Incorporate starter and salt with wet hands.\n3. **Stretch & folds** \u2014 Perform 3\u20134 sets every 30 min.\n4. **Bulk ferment** \u2014 4\u20136 hrs at 24\u00b0C until dough is puffy and jiggly.\n5. **Pan & dimple** \u2014 Transfer to oiled pan, stretch to edges, dimple with fingers.\n6. **Final proof** \u2014 Rest 45\u201360 min, add toppings (olive oil, flaky salt, rosemary).\n7. **Bake** \u2014 230\u00b0C for 22\u201325 min until golden and crisp.\n\n**Sources:** theperfectloaf.com: a simple focaccia; theperfectloaf.com: best sourdough recipe",
                 "steps": [
                     {
                         "module": "supervisor",
                         "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
-                        "response": "{\"intent\": \"recipe\", \"intent_params\": {\"target_product\": \"focaccia\", \"hydration\": 80}}"
-                    },
-                    {
-                        "module": "clarify",
-                        "prompt": "Give me a recipe for sourdough focaccia with 80% hydration",
-                        "response": "{\"needs_clarification\": false}"
+                        "response": "{\"intent\": \"recipe\", \"intent_params\": {\"target_product\": \"sourdough focaccia\", \"hydration\": 80.0}}"
                     },
                     {
                         "module": "retrieve_context",
-                        "prompt": "sourdough focaccia recipe 80% hydration",
-                        "response": "Retrieved 4 relevant chunks from sourdough knowledge base."
+                        "prompt": "Give me a recipe for sourdough focaccia with 80% hydration sourdough focaccia bread recipe baking technique",
+                        "response": "Retrieved 10 documents (dropped 0 below score 0.3)"
+                    },
+                    {
+                        "module": "compute_baking_math (pct extraction)",
+                        "prompt": "Extract starter_pct and salt_pct for 'sourdough focaccia' from 10 docs",
+                        "response": "{\"starter_pct\": 19.0, \"salt_pct\": 1.8}"
                     },
                     {
                         "module": "generate_recipe",
-                        "prompt": "Generate a full focaccia recipe with the computed quantities.",
-                        "response": "**Sourdough Focaccia (80% Hydration)**..."
+                        "prompt": "Context from knowledge base:\n[1] theperfectloaf.com: a simple focaccia ...\n\nBaking math results: {flour: 1000, water: 800, starter: 190, salt: 18}\n\nUser request: Give me a recipe for sourdough focaccia with 80% hydration\n\nCreate a detailed sourdough recipe:",
+                        "response": "## Sourdough Focaccia (80% Hydration)..."
                     }
                 ]
             }
