@@ -484,10 +484,11 @@ def build_timeline(state: SourdoughState) -> dict:
                 else:
                     _rag_salt_pct = None
 
-                # Annotate each extracted ingredient with its baker's percentage so
-                # the presentation layer can render a proper three-column table.
-                # Only flour, water, starter, and salt get a numeric %; everything
-                # else (olive oil, toppings, seeds, etc.) gets "-".
+                # Annotate each extracted ingredient with baker's percentage so the
+                # presentation layer can render a proper three-column table.
+                # Baker's % is ingredient_grams / total_flour_grams * 100.
+                # This applies to ALL ingredients with parseable gram amounts
+                # (including oils and inclusions), not only water/starter/salt.
                 _flour_total_rag = sum(
                     (_parse_grams(ing["amount"]) or 0.0)
                     for ing in extracted_ingredients
@@ -495,16 +496,11 @@ def build_timeline(state: SourdoughState) -> dict:
                 )
                 if _flour_total_rag > 0:
                     for ing in extracted_ingredients:
-                        category = _classify_ingredient(ing["name"])
-                        if category == "flour":
-                            ing["baker_pct"] = "100%"
-                        elif category in ("water", "starter", "salt"):
-                            grams = _parse_grams(ing["amount"])
-                            if grams is not None:
-                                pct = round(grams / _flour_total_rag * 100, 1)
-                                ing["baker_pct"] = f"{pct}%"
-                            else:
-                                ing["baker_pct"] = "-"
+                        grams = _parse_grams(ing["amount"])
+                        if grams is not None:
+                            pct = round(grams / _flour_total_rag * 100, 1)
+                            pct_str = str(int(pct)) if float(pct).is_integer() else str(pct)
+                            ing["baker_pct"] = f"{pct_str}%"
                         else:
                             ing["baker_pct"] = "-"
             else:
