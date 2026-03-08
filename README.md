@@ -47,10 +47,10 @@ load_session → supervisor → clarify ──→ (conditional routing)
 
 ### Key Design Decisions
 
-- **Max 2 LLM calls per request**: supervisor (intent classification via structured output) + one generation node
+- **Minimal LLM calls**: typically 2 per request (supervisor + generation). Some paths add an optional extraction call (e.g. baker's % from docs). Non-English queries add a translation call.
 - **Clarification node is pure Python** — checks for missing parameters per intent and asks the user before proceeding, no LLM cost
 - **Baking math is deterministic** — hydration, baker's percentages, fermentation time estimation, and timeline scheduling are all pure Python calculations
-- **RAG grounding** — all generation nodes are instructed to use ONLY retrieved context from the knowledge base and cite sources
+- **RAG grounding** — all generation nodes prioritize retrieved context from the knowledge base and cite sources. Standard sourdough practice fills gaps when sources are incomplete, noted inline.
 - **Multi-turn memory** — conversation history is persisted to Supabase and loaded on each request
 
 ### Tech Stack
@@ -76,6 +76,7 @@ sourdough-guru/
 │   ├── main.py                     # FastAPI app + all endpoints
 │   ├── config.py                   # Pydantic settings from env vars
 │   ├── models.py                   # Request/response schemas
+│   ├── db_init.py                  # Auto-create Supabase tables on startup
 │   ├── graph/
 │   │   ├── state.py                # LangGraph state definition
 │   │   ├── workflow.py             # Graph assembly + compilation
@@ -97,12 +98,17 @@ sourdough-guru/
 │   └── ingestion/
 │       ├── pdf_parser.py           # PDF text extraction (pdfplumber)
 │       ├── chunker.py              # Text chunking (1000 chars, 200 overlap)
-│       └── ingest.py               # CLI: parse → chunk → embed → Pinecone
+│       ├── ingest.py               # CLI: parse → chunk → embed → Pinecone
+│       └── web_ingest.py           # CLI: scrape blog URLs → chunk → embed → Pinecone
 ├── frontend/
 │   └── index.html                  # Chat UI (single page, no build tools)
+├── diagram/
+│   ├── architecture.png            # Architecture diagram (served by API)
+│   └── workflow.mmd                # Mermaid source for diagram
 ├── dataset/
 │   ├── Books/                      # Sourdough reference books (PDFs)
 │   └── Research papers/            # Academic papers (PDFs)
+├── main.py                         # Entry point (uvicorn runner)
 ├── requirements.txt
 ├── Dockerfile
 ├── render.yaml
@@ -134,24 +140,9 @@ cp .env.example .env
 # Edit .env and fill in your API keys
 ```
 
-### 3. Create Supabase tables
+### 3. Supabase tables
 
-Run this SQL in the Supabase SQL Editor:
-
-```sql
-CREATE TABLE IF NOT EXISTS chat_sessions (
-    session_id TEXT PRIMARY KEY,
-    messages JSONB DEFAULT '[]',
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS bake_sessions (
-    session_id TEXT PRIMARY KEY,
-    plan_data JSONB DEFAULT '{}',
-    active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-```
+Tables are **auto-created on startup** via `app/db_init.py` (requires `DATABASE_URL` in `.env`). No manual SQL needed.
 
 ### 4. Ingest knowledge base
 
@@ -203,9 +194,9 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
     "error": null,
     "response": "## Short Answer\n\nKeep your starter at **4-21°C (40-70°F)**...",
     "steps": [
-        {"module": "Supervisor", "prompt": "...", "response": "..."},
-        {"module": "KnowledgeBaseRetriever", "prompt": "...", "response": "..."},
-        {"module": "FactualQAAgent", "prompt": "...", "response": "..."}
+        {"module": "supervisor", "prompt": "...", "response": "..."},
+        {"module": "retrieve_context", "prompt": "...", "response": "..."},
+        {"module": "generate_qa_answer", "prompt": "...", "response": "..."}
     ]
 }
 ```
