@@ -23,7 +23,7 @@ class ExecuteResponse(BaseModel):
 
 class TeamMember(BaseModel):
     name: str
-    id: str
+    email: str
 
 
 class TeamInfo(BaseModel):
@@ -34,8 +34,8 @@ class TeamInfo(BaseModel):
 class AgentInfo(BaseModel):
     description: str
     purpose: str
-    prompt_templates: list[str]
-    examples: list[dict]
+    prompt_template: dict
+    prompt_examples: list[dict]
 
 
 class BakeStatus(BaseModel):

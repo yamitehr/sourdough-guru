@@ -1,11 +1,14 @@
 """Pinecone retriever for sourdough knowledge base."""
 
+from functools import lru_cache
+
 from openai import OpenAI
 from pinecone import Pinecone
 
 from app.config import get_settings
 
 
+@lru_cache
 def _get_clients():
     settings = get_settings()
     embed_client = OpenAI(

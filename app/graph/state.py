@@ -4,6 +4,9 @@ import operator
 from typing import Annotated, TypedDict
 from langgraph.graph.message import add_messages
 
+# How many recent messages to include as conversation context for LLM calls
+HISTORY_WINDOW = 6
+
 
 class SourdoughState(TypedDict):
     messages: Annotated[list, add_messages]  # conversation history

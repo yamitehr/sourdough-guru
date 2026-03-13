@@ -1,0 +1,52 @@
+graph TD
+    START([START]) --> load_session["<b>load_session</b><br/>Load chat history<br/>from Supabase"]
+
+    load_session --> supervisor["<b>supervisor</b><br/>Classify intent &<br/>extract params<br/>(LLM structured output)"]
+
+    supervisor --> clarify["<b>clarify</b><br/>Check missing params<br/>& ask user<br/>(deterministic)"]
+
+    clarify -->|"has clarifying<br/>question"| save_session
+
+    clarify -->|"intent: general"| generate_general_response["<b>generate_general_response</b><br/>Handle greetings,<br/>off-topic & meta<br/>(LLM)"]
+
+    clarify -->|"intent: factual_qa"| retrieve_context_qa["<b>retrieve_context_qa</b><br/>Embed query &<br/>retrieve from Pinecone<br/>(RAG)"]
+
+    clarify -->|"intent: recipe"| retrieve_context_recipe["<b>retrieve_context_recipe</b><br/>Embed query &<br/>retrieve from Pinecone<br/>(RAG)"]
+
+    clarify -->|"intent: bake_plan"| retrieve_context_bake["<b>retrieve_context_bake</b><br/>Embed query &<br/>retrieve from Pinecone<br/>(RAG)"]
+
+    %% Factual QA path
+    retrieve_context_qa --> generate_qa_answer["<b>generate_qa_answer</b><br/>Answer from KB context<br/>+ citations<br/>(LLM)"]
+    generate_qa_answer --> save_session
+
+    %% Recipe path
+    retrieve_context_recipe --> compute_baking_math["<b>compute_baking_math</b><br/>Deterministic math:<br/>ingredients, baker's %<br/>(+ LLM pct extraction)"]
+    compute_baking_math --> generate_recipe["<b>generate_recipe</b><br/>Build full recipe<br/>with method & tips<br/>(LLM)"]
+    generate_recipe --> save_session
+
+    %% Bake plan path
+    retrieve_context_bake --> build_timeline["<b>build_timeline</b><br/>Extract steps from KB<br/>+ compute timestamps<br/>(LLM + deterministic)"]
+    build_timeline --> generate_bake_plan["<b>generate_bake_plan</b><br/>Present bake schedule<br/>with ingredients & tips<br/>(LLM)"]
+    generate_bake_plan --> store_bake_session["<b>store_bake_session</b><br/>Save plan to Supabase<br/>for live polling"]
+    store_bake_session --> save_session
+
+    %% General path
+    generate_general_response --> save_session
+
+    %% Save & end
+    save_session["<b>save_session</b><br/>Persist conversation<br/>to Supabase"] --> END([END])
+
+    %% Styling
+    classDef entryExit fill:#8b6914,color:#fff,stroke:#7a5c11,stroke-width:2px,font-weight:bold
+    classDef llmNode fill:#f5e6c8,stroke:#8b6914,stroke-width:2px,color:#2c2416
+    classDef ragNode fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#2c2416
+    classDef mathNode fill:#d1ecf1,stroke:#0c5460,stroke-width:2px,color:#2c2416
+    classDef dbNode fill:#e2d9f3,stroke:#6f42c1,stroke-width:2px,color:#2c2416
+    classDef routeNode fill:#fff3cd,stroke:#856404,stroke-width:2px,color:#2c2416
+
+    class START,END entryExit
+    class supervisor,generate_qa_answer,generate_recipe,generate_bake_plan,generate_general_response llmNode
+    class retrieve_context_qa,retrieve_context_recipe,retrieve_context_bake ragNode
+    class compute_baking_math,build_timeline mathNode
+    class load_session,save_session,store_bake_session dbNode
+    class clarify routeNode

@@ -6,6 +6,7 @@ Uses the PostgREST API directly to avoid supabase-py key format issues.
 import json
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -81,7 +82,7 @@ def save_session(session_id: str, messages: list[dict]) -> None:
     payload = {
         "session_id": session_id,
         "messages": json.dumps(messages),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None).isoformat(),
     }
     headers = _headers()
     # Upsert: use Prefer: resolution=merge-duplicates
@@ -108,15 +109,24 @@ def load_session(session_id: str) -> list[dict]:
 # ---- Bake plan persistence ----
 
 def save_bake_plan(session_id: str, plan_data: dict) -> str:
-    """Save a bake plan (timeline + details) linked to a session."""
+    """Save a bake plan (timeline + details) linked to a session.
+
+    Deletes any existing plan for this session first to guarantee a clean replacement.
+    """
+    headers = _headers()
+    # Remove old plan so the new one is always the single active record
+    httpx.delete(
+        _rest_url("bake_sessions") + f"?session_id=eq.{session_id}",
+        headers=headers,
+        timeout=10,
+    )
     payload = {
         "session_id": session_id,
         "plan_data": json.dumps(plan_data),
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None).isoformat(),
         "active": True,
     }
-    headers = _headers()
-    headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+    headers["Prefer"] = "return=representation"
     resp = httpx.post(_rest_url("bake_sessions"), json=payload, headers=headers, timeout=10)
     resp.raise_for_status()
     logger.info(f"[Supabase] Saved bake plan for session {session_id}")
@@ -139,7 +149,7 @@ def get_bake_status(session_id: str) -> dict:
         plan_data = json.loads(plan_data)
 
     timeline = plan_data.get("timeline", [])
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
 
     current_step = None
     next_step = None
